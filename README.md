@@ -8,5 +8,4 @@ docker build -t felipecs8/conversor-temperatura .
 ### Running
 ```
 docker compose up -d
-
 ```
