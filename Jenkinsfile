@@ -6,13 +6,6 @@ pipeline {
 
   stages {
 
-    stage('Checkout') {
-      agent any
-      steps {
-        checkout scm
-      }
-    }
-
     stage('Node Version') {
       steps {
         sh 'node -v'
