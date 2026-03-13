@@ -6,24 +6,19 @@ pipeline {
 
   stages {
 
-    stage('Node Version') {
+    stage('Test') {
+      agent {
+        docker {
+          image 'node:18'
+        }
+      }
+
       steps {
         sh 'node -v'
         sh 'npm -v'
-      }
-    }
 
-    stage('Install Dependencies') {
-      steps {
         dir('src') {
           sh 'npm install'
-        }
-      }
-    }
-
-    stage('Run Tests') {
-      steps {
-        dir('src') {
           sh 'npm test'
         }
       }
