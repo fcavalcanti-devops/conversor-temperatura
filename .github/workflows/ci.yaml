@@ -55,7 +55,7 @@ jobs:
 
       # Relatorio completo no log, sem bloquear.
       - name: Scan image (Trivy)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.LOCAL_IMAGE }}
           format: table
@@ -65,10 +65,11 @@ jobs:
 
       # Bloqueia o PR apenas em vulnerabilidade critica com correcao disponivel.
       - name: Fail on critical vulnerabilities
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.LOCAL_IMAGE }}
           format: table
           severity: CRITICAL
           ignore-unfixed: true
           exit-code: '1'
+          skip-setup-trivy: true
