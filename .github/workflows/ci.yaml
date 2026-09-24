@@ -1,0 +1,74 @@
+name: 'CI'
+
+on:
+  pull_request:
+    branches:
+      - main
+      - homolog
+
+permissions:
+  contents: read
+
+# PR novo cancela a execucao anterior do mesmo PR.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: 'Testes'
+    uses: ./.github/workflows/test.yaml
+
+  build:
+    name: 'Build da imagem'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      LOCAL_IMAGE: conversor-temperatura:ci-${{ github.sha }}
+
+    steps:
+      - name: Check Out Repo
+        uses: actions/checkout@v4
+
+      - name: Lint Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+          failure-threshold: warning
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Sem push: PR ainda nao aprovado nao publica imagem, e nao precisa de secrets
+      # (funciona tambem em PR vindo de fork).
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: ${{ env.LOCAL_IMAGE }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Relatorio completo no log, sem bloquear.
+      - name: Scan image (Trivy)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.LOCAL_IMAGE }}
+          format: table
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '0'
+
+      # Bloqueia o PR apenas em vulnerabilidade critica com correcao disponivel.
+      - name: Fail on critical vulnerabilities
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.LOCAL_IMAGE }}
+          format: table
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'

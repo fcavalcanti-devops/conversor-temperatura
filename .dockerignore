@@ -1,0 +1,13 @@
+.git
+.gitignore
+.github
+.k8s
+**/node_modules
+**/npm-debug.log*
+**/test-results
+**/coverage
+*.md
+Jenkinsfile
+docker-compose.yml
+src/test
+src/vitest.config.js
