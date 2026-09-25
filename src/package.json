@@ -29,7 +29,7 @@
     "yamljs": "^0.3.0"
   },
   "devDependencies": {
-    "supertest": "^6.3.4",
+    "supertest": "^7.2.2",
     "vitest": "^5.0.1"
   }
 }
