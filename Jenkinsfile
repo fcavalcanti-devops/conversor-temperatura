@@ -1,5 +1,5 @@
-// Pipeline: agent Node 18 → checkout → node/npm version → install deps → testes → build → push Docker Hub
-// Testes rodam no container node:18; Build e Push rodam em agente com Docker.
+// Pipeline: agent Node 20 → checkout → install deps → testes → build → push Docker Hub
+// Testes rodam no container node:20; Build e Push rodam em agente com Docker.
 
 pipeline {
   agent none
@@ -9,7 +9,7 @@ pipeline {
     stage('Test') {
       agent {
         docker {
-          image 'node:18'
+          image 'node:20'
         }
       }
 
