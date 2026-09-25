@@ -53,38 +53,11 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Sobe a imagem e exercita as rotas. Pega quebra que so aparece em runtime,
-      # como um pacote que ficou de fora do npm ci --omit=dev.
+      # Sobe a imagem e exercita runtime: /health (up) + API + view + user nao-root.
+      # Pega quebra que so aparece no container (ex.: dep de fora do npm ci --omit=dev).
       - name: Smoke test
         shell: bash
-        run: |
-          docker run -d --name smoke -p 8080:8080 "$LOCAL_IMAGE"
-
-          for _ in $(seq 1 20); do
-            if curl -fsS http://localhost:8080/health >/dev/null 2>&1; then
-              pronto=1
-              break
-            fi
-            sleep 1
-          done
-
-          if [ "${pronto:-0}" != 1 ]; then
-            echo "A aplicacao nao respondeu em /health"
-            exit 1
-          fi
-
-          # Os require e o YAML.load acontecem na inicializacao, entao dependencia
-          # faltando ja derruba o /health acima. A view so e lida na renderizacao.
-          curl -fsS http://localhost:8080/ | grep -q 'Conversor de Temperatura'
-
-          if [ "$(docker exec smoke id -u)" = 0 ]; then
-            echo "O container esta rodando como root"
-            exit 1
-          fi
-
-      - name: Container logs
-        if: failure()
-        run: docker logs smoke
+        run: bash scripts/smoke.sh "$LOCAL_IMAGE"
 
       - name: Remove container
         if: always()

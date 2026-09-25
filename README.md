@@ -22,11 +22,18 @@ npm test
 ```
 Detalhes em [TESTES.md](TESTES.md).
 
+### Smoke (imagem Docker)
+Depois de buildar a imagem:
+```bash
+bash scripts/smoke.sh felipecs8/conversor-temperatura:latest
+```
+Checa `/health` (app up), rotas de conversão, a página `/` e que o container não roda como root. Em falha, imprime `docker logs` na esteira/terminal.
+
 ### Esteira CI/CD (GitHub Actions)
 
 | Gatilho | Workflow | O que acontece |
 |---|---|---|
-| Pull request para `main` ou `homolog` | `.github/workflows/ci.yaml` | Testes (Node 20 e 22), lint do Dockerfile, build da imagem **sem push** e scan Trivy |
+| Pull request para `main` ou `homolog` | `.github/workflows/ci.yaml` | Testes (Node 20 e 22), lint do Dockerfile, build da imagem **sem push**, smoke (`/health` + API + view) e scan Trivy |
 | Push em `homolog` | `.github/workflows/release.yaml` | Testes e publicação das tags `homolog` e `sha-<commit>` |
 | Push em `main` | `.github/workflows/release.yaml` | Testes e publicação das tags `latest`, `main` e `sha-<commit>` |
 | Tag `v1.2.3` | `.github/workflows/release.yaml` | Testes e publicação das tags `1.2.3`, `1.2` e `latest` |
