@@ -5,12 +5,14 @@ updates:
     directory: /src
     schedule:
       interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: America/Sao_Paulo
     open-pull-requests-limit: 5
-    # Major e decisao manual, nao PR automatico. O ignore nao distingue
-    # dependencia de producao de dev, entao a regra vale para todas.
-    ignore:
-      - dependency-name: '*'
-        update-types: ['version-update:semver-major']
+    # Major continua sendo proposta: o cooldown so segura a release recem-saida,
+    # em vez de criar ponto cego na atualizacao de dependencia.
+    cooldown:
+      default-days: 7
     groups:
       npm-minor-e-patch:
         update-types:
@@ -32,7 +34,8 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
-    # Evita proposta de major da base, que traz linha nao-LTS (ex.: node:25).
+    # Aqui o bloqueio de major faz sentido: o que se quer e a LTS, nao a versao
+    # mais nova, e o Dependabot nao sabe expressar isso (ex.: node:25, ja EOL).
     ignore:
       - dependency-name: '*'
         update-types: ['version-update:semver-major']
