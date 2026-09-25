@@ -6,6 +6,21 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # Major das dependencias de runtime fica de fora: a troca e decidida a mao,
+    # nao por PR automatico. As devDependencies seguem livres.
+    ignore:
+      - dependency-name: body-parser
+        update-types: ['version-update:semver-major']
+      - dependency-name: ejs
+        update-types: ['version-update:semver-major']
+      - dependency-name: express
+        update-types: ['version-update:semver-major']
+      - dependency-name: nodehog
+        update-types: ['version-update:semver-major']
+      - dependency-name: swagger-ui-express
+        update-types: ['version-update:semver-major']
+      - dependency-name: yamljs
+        update-types: ['version-update:semver-major']
     groups:
       npm-minor-e-patch:
         update-types:
@@ -27,3 +42,7 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # Evita proposta de major da base, que traz linha nao-LTS (ex.: node:25).
+    ignore:
+      - dependency-name: node
+        update-types: ['version-update:semver-major']
