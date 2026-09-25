@@ -38,7 +38,7 @@ jobs:
         run: npm ci
 
       - name: Run tests
-        run: npx vitest run --reporter=default --reporter=junit --outputFile.junit=test-results/junit.xml
+        run: npm test -- --reporter=default --reporter=junit --outputFile.junit=test-results/junit.xml
 
       - name: Upload test report
         if: always()
