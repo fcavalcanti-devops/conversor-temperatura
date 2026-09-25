@@ -57,7 +57,7 @@ jobs:
       # Pega quebra que so aparece no container (ex.: dep de fora do npm ci --omit=dev).
       - name: Smoke test
         shell: bash
-        run: scripts/smoke.sh "$LOCAL_IMAGE"
+        run: bash scripts/smoke.sh "$LOCAL_IMAGE"
 
       - name: Remove container
         if: always()
