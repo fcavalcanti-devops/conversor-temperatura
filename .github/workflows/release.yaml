@@ -56,9 +56,10 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # main    -> latest, main, sha-<short>
-      # homolog -> homolog, sha-<short>
+      # main    -> latest, main
+      # homolog -> homolog
       # v1.2.3  -> 1.2.3, 1.2, latest
+      # Deploy imutavel: usar digest (@sha256:...) do job summary, nao tags sha-*.
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@v6
@@ -66,7 +67,6 @@ jobs:
           images: ${{ env.IMAGE_NAME }}
           tags: |
             type=ref,event=branch
-            type=sha,prefix=sha-,format=short
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable={{is_default_branch}}
