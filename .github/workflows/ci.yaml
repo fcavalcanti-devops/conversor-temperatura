@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 # PR novo cancela a execucao anterior do mesmo PR.
 concurrency:
@@ -18,6 +19,9 @@ jobs:
   test:
     name: 'Testes'
     uses: ./.github/workflows/test.yaml
+    permissions:
+      contents: read
+      pull-requests: read
 
   build:
     name: 'Build da imagem'

@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 # Nao cancela uma publicacao em andamento.
 concurrency:
@@ -26,6 +27,9 @@ jobs:
   test:
     name: 'Testes'
     uses: ./.github/workflows/test.yaml
+    permissions:
+      contents: read
+      pull-requests: read
 
   publish:
     name: 'Build e push da imagem'
