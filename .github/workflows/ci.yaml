@@ -43,8 +43,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      # Sem push: PR ainda nao aprovado nao publica imagem, e nao precisa de secrets
-      # (funciona tambem em PR vindo de fork).
       - name: Build image
         uses: docker/build-push-action@v7
         with:
@@ -55,8 +53,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Sobe a imagem e exercita runtime: /health (up) + API + view + user nao-root.
-      # Pega quebra que so aparece no container (ex.: dep de fora do npm ci --omit=dev).
       - name: Smoke test
         shell: bash
         run: bash scripts/smoke.sh "$LOCAL_IMAGE"
@@ -65,7 +61,6 @@ jobs:
         if: always()
         run: docker rm -f smoke
 
-      # Relatorio completo no log, sem bloquear.
       - name: Scan image (Trivy)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -75,7 +70,6 @@ jobs:
           ignore-unfixed: true
           exit-code: '0'
 
-      # Bloqueia o PR apenas em vulnerabilidade critica com correcao disponivel.
       - name: Fail on critical vulnerabilities
         uses: aquasecurity/trivy-action@v0.36.0
         with:
