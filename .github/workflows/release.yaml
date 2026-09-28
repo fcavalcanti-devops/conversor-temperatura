@@ -14,7 +14,6 @@ on:
 permissions:
   contents: read
 
-# Nao cancela uma publicacao em andamento.
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -137,7 +136,7 @@ jobs:
           TAG="${{ github.sha }}"
           [[ "${{ github.ref }}" == refs/tags/v* ]] && TAG="${GITHUB_REF_NAME#v}"
           sed -i "s/tag:.*/tag: ${TAG}/" charts/conversor-temperatura/values.yaml
-          git config user.name github-actions
-          git config user.email github-actions@github.com
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git commit -am "chore: update conversor-temperatura to ${TAG}" || exit 0
           git push
