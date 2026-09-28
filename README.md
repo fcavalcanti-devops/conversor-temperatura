@@ -54,12 +54,13 @@ git tag v1.0.1
 git push origin v1.0.1
 ```
 
-**Deploy (Argo + Helm):** veja [`.argo/README.md`](.argo/README.md). Fluxo: Release publica a imagem → **PR no Helm** altera `application.image.tag` (sha ou semver) → merge → Argo sync. Sem Image Updater.
+**Deploy (Argo + Helm):** veja [`.argo/README.md`](.argo/README.md). Fluxo automatico: Release publica a imagem → job faz `sed` + `commit` + `push` no `helm-charts` → Argo sync.
 
 **Secrets necessários** (Settings → Secrets and variables → Actions):
 
 - `DOCKERHUB_USERNAME`: usuário do Docker Hub
 - `DOCKERHUB_TOKEN`: access token do Docker Hub com permissão de escrita
+- `HELM_CHARTS_TOKEN`: PAT com **Contents: write** em `fcavalcanti-devops/helm-charts`
 
 ### Pipeline Jenkins
 Configuração e execução da CI (testes, build e push da imagem Docker) em [JENKINS.md](JENKINS.md).

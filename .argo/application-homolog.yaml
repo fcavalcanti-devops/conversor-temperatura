@@ -1,5 +1,5 @@
 # Exemplo — ajuste repoURL, path e namespace antes de aplicar.
-# Deploy: PR no Helm muda application.image.tag → Argo sync.
+# Deploy: Release faz sed+push em values.yaml → Argo sync.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -8,13 +8,12 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/devfelip/helm-charts.git
+    repoURL: https://github.com/fcavalcanti-devops/helm-charts.git
     targetRevision: main
     path: charts/conversor-temperatura
     helm:
       valueFiles:
         - values.yaml
-        - values-homolog.yaml
   destination:
     server: https://kubernetes.default.svc
     namespace: conversor-homolog

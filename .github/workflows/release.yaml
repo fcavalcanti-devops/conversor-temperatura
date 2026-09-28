@@ -122,5 +122,22 @@ jobs:
             echo "${{ steps.meta.outputs.tags }}"
             echo '```'
             echo ''
-            echo 'Para deploy: abra PR no Helm com application.image.tag = git sha (ou semver) → Argo sync.'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  update-helm:
+    name: 'Atualizar Helm'
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: fcavalcanti-devops/helm-charts
+          token: ${{ secrets.HELM_CHARTS_TOKEN }}
+      - run: |
+          TAG="${{ github.sha }}"
+          [[ "${{ github.ref }}" == refs/tags/v* ]] && TAG="${GITHUB_REF_NAME#v}"
+          sed -i "s/tag:.*/tag: ${TAG}/" charts/conversor-temperatura/values.yaml
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git commit -am "chore: update conversor-temperatura to ${TAG}" || exit 0
+          git push
