@@ -14,7 +14,6 @@ on:
 permissions:
   contents: read
 
-# Nao cancela uma publicacao em andamento.
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
