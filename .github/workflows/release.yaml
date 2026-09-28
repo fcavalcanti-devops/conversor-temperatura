@@ -13,7 +13,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
 
 # Nao cancela uma publicacao em andamento.
 concurrency:
