@@ -13,11 +13,12 @@ docker build -t felipecs8/conversor-temperatura .
 docker compose up -d
 ```
 
-### Testes
-Rodar os testes (a partir da pasta `src`):
+### Testes e lint
+Na pasta `src`:
 ```bash
 cd src
 npm install
+npm run lint
 npm test
 ```
 Detalhes em [TESTES.md](TESTES.md).
@@ -33,7 +34,7 @@ Checa `/health` (app up), rotas de conversão, a página `/` e que o container n
 
 | Gatilho | Workflow | O que acontece |
 |---|---|---|
-| Pull request para `main` ou `homolog` | `.github/workflows/ci.yaml` | Testes (Node 20 e 22), lint do Dockerfile, build da imagem **sem push**, smoke (`/health` + API + view) e scan Trivy |
+| Pull request para `main` ou `homolog` | `.github/workflows/ci.yaml` | Lint (ESLint), testes (Node 20 e 22), lint do Dockerfile, build **sem push**, smoke e scan Trivy |
 | Push em `homolog` | `.github/workflows/release.yaml` | Testes e publicação das tags `homolog` e `sha-<commit>` |
 | Push em `main` | `.github/workflows/release.yaml` | Testes e publicação das tags `latest`, `main` e `sha-<commit>` |
 | Tag `v1.2.3` | `.github/workflows/release.yaml` | Testes e publicação das tags `1.2.3`, `1.2` e `latest` |
