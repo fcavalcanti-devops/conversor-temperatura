@@ -54,7 +54,7 @@ git tag v1.0.1
 git push origin v1.0.1
 ```
 
-**Deploy (Argo + Helm):** veja [`.argo/README.md`](.argo/README.md). Fluxo automatico: Release publica a imagem → job faz `sed` + `commit` + `push` no `helm-charts` → Argo sync.
+**Deploy (Argo + Helm):** Applications no repo [gitops](https://github.com/fcavalcanti-devops/gitops) (App of Apps). Release publica a imagem → `sed` + push da tag no `helm-charts` → Argo sync.
 
 **Secrets necessários** (Settings → Secrets and variables → Actions):
 
