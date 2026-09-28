@@ -34,12 +34,12 @@ Checa `/health` (app up), rotas de conversão, a página `/` e que o container n
 
 | Gatilho | Workflow | O que acontece |
 |---|---|---|
-| Pull request para `main` ou `homolog` | `.github/workflows/ci.yaml` | Lint (ESLint), testes (Node 20 e 22), lint do Dockerfile, build **sem push**, smoke e scan Trivy |
+| Pull request para `main` ou `homolog` | `.github/workflows/ci.yaml` | Gitleaks, lint (ESLint), testes (Node 20 e 22), lint do Dockerfile, build **sem push**, smoke e scan Trivy |
 | Push em `homolog` | `.github/workflows/release.yaml` | Testes e publicação das tags `homolog` e `sha-<commit>` |
 | Push em `main` | `.github/workflows/release.yaml` | Testes e publicação das tags `latest`, `main` e `sha-<commit>` |
 | Tag `v1.2.3` | `.github/workflows/release.yaml` | Testes e publicação das tags `1.2.3`, `1.2` e `latest` |
 
-Os testes rodam em `.github/workflows/test.yaml`, um workflow reutilizável chamado tanto pela CI quanto pelo release, então nada é publicado sem os testes passarem.
+Os checks de qualidade rodam em `.github/workflows/test.yaml` (Gitleaks, lint, testes e audit), um workflow reutilizável chamado tanto pela CI quanto pelo release, então nada é publicado sem eles passarem.
 
 Imagem publicada: `felipecs8/conversor-temperatura` (multi-arquitetura `linux/amd64` e `linux/arm64`, com SBOM e proveniência).
 
