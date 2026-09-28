@@ -58,7 +58,7 @@ jobs:
 
       # main    -> latest
       # homolog -> homolog
-      # v1.2.3  -> 1.2.3, 1.2 (+ latest via flavor)
+      # v1.2.3  -> 1.2.3, 1.2
       # Deploy imutavel: usar digest (@sha256:...) do job summary, nao tags sha-* / main.
       - name: Docker metadata
         id: meta
@@ -66,11 +66,12 @@ jobs:
         with:
           images: ${{ env.IMAGE_NAME }}
           tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=homolog,enable=${{ github.ref == format('refs/heads/{0}', 'homolog') }}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
           flavor: |
-            latest=auto
+            latest=false
 
       - name: Build and push
         id: build
