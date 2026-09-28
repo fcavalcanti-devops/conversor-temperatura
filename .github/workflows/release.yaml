@@ -13,7 +13,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
 
 # Nao cancela uma publicacao em andamento.
 concurrency:
@@ -88,6 +87,17 @@ jobs:
           sbom: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Smoke published image
+        env:
+          SMOKE_IMAGE: ${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+        run: |
+          docker pull "$SMOKE_IMAGE"
+          bash scripts/smoke.sh "$SMOKE_IMAGE"
+
+      - name: Remove smoke container
+        if: always()
+        run: docker rm -f smoke
 
       - name: Scan published image (Trivy)
         uses: aquasecurity/trivy-action@v0.36.0
