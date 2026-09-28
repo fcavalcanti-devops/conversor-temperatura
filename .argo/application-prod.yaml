@@ -1,0 +1,26 @@
+# Exemplo — ajuste repoURL, path e namespace.
+# Prod: PR no Helm com tag semver (1.0.1) ou sha; sync automatico apos merge.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: conversor-temperatura-prod
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/devfelip/helm-charts.git
+    targetRevision: main
+    path: charts/conversor-temperatura
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-prod.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: conversor-prod
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

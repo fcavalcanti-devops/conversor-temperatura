@@ -1,0 +1,26 @@
+# Exemplo — ajuste repoURL, path e namespace antes de aplicar.
+# Deploy: PR no Helm muda application.image.tag → Argo sync.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: conversor-temperatura-homolog
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/devfelip/helm-charts.git
+    targetRevision: main
+    path: charts/conversor-temperatura
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homolog.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: conversor-homolog
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
