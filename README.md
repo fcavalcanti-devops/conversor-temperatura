@@ -64,5 +64,38 @@ git push origin v1.0.1
 
 Após cada Release, o job **Cleanup Docker Hub** chama a API do Hub e apaga tags **sha** antigas (mantém as 10 mais recentes; `latest`/`homolog`/semver não são sha e ficam).
 
+### Deploy (Argo CD + Argo Rollouts)
+
+O chart Helm usa **Argo Rollouts** (`kind: Rollout`) com estratégia **canary**, não um `Deployment` comum.
+
+Fluxo:
+
+```text
+Release publica a imagem → tag no helm-charts → Argo CD sync
+        → Rollout: 50% pods novos → pause 60s → 100%
+```
+
+**Pré-requisito no cluster:** controller Argo Rollouts instalado (`argo-rollouts`). Se o `kubectl apply` do install falhar por annotation grande nos CRDs:
+
+```bash
+kubectl apply --server-side --force-conflicts -n argo-rollouts \
+  -f https://github.com/argoproj/argo-rollouts/releases/latest/download/install.yaml
+```
+
+**Acompanhar um deploy (homolog):**
+
+```bash
+kubectl get rollout -n conversor-homolog -w
+# com o plugin:
+kubectl argo rollouts get rollout conversor-temperatura-homolog-conversor-temperatura \
+  -n conversor-homolog -w
+```
+
+**Steps padrão** (ajustáveis em `application.canary.steps` no chart): `setWeight: 50` → `pause: 60s` → `setWeight: 100`. Use **2+ replicas** para o canary fazer sentido.
+
+**Migração:** se ainda existir um `Deployment` antigo do conversor no namespace, apague-o após o sync do Rollout para evitar conflito.
+
+Chart: repo `helm-charts` → `charts/conversor-temperatura` (`templates/rollout.yaml`).
+
 ### Pipeline Jenkins
 Configuração e execução da CI (testes, build e push da imagem Docker) em [JENKINS.md](JENKINS.md).
