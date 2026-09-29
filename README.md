@@ -54,8 +54,6 @@ git tag v1.0.1
 git push origin v1.0.1
 ```
 
-**Deploy (Argo + Helm):** Applications no repo [gitops](https://github.com/fcavalcanti-devops/gitops) (App of Apps). Release publica a imagem → `sed` + push da tag no `helm-charts` → Argo sync.
-
 **Secrets necessários** (Settings → Secrets and variables → Actions):
 
 - `DOCKERHUB_USERNAME`: usuário do Docker Hub
@@ -64,38 +62,51 @@ git push origin v1.0.1
 
 Após cada Release, o job **Cleanup Docker Hub** chama a API do Hub e apaga tags **sha** antigas (mantém as 10 mais recentes; `latest`/`homolog`/semver não são sha e ficam).
 
-### Deploy (Argo CD + Argo Rollouts)
+### Deploy — dois modos (Helm / Argo)
 
-O chart Helm usa **Argo Rollouts** (`kind: Rollout`) com estratégia **canary**, não um `Deployment` comum.
+Applications no repo [gitops](https://github.com/fcavalcanti-devops/gitops) (App of Apps). Charts no `helm-charts`.  
+Release publica a imagem → atualiza a `tag` no chart → Argo sync.
 
-Fluxo:
+| Modo | Chart | Recurso K8s | Uso |
+|------|--------|-------------|-----|
+| **Normal** | `charts/conversor-temperatura` | `Deployment` | Homolog / prod (padrão) |
+| **Canary** | `charts/conversor-temperatura-canary` | `Rollout` (Argo Rollouts) | Lab / testes de canary |
 
-```text
-Release publica a imagem → tag no helm-charts → Argo CD sync
-        → Rollout: 50% pods novos → pause 60s → 100%
+#### Modo normal (Deployment)
+
+Rolling update clássico do Kubernetes. Namespace típico: `conversor-homolog` / `conversor-prod`.
+
+```bash
+# via Argo (gitops) ou:
+helm upgrade --install conversor ./charts/conversor-temperatura \
+  -n conversor-homolog --create-namespace \
+  --set application.image.tag=<sha>
+
+kubectl get deploy,pods -n conversor-homolog
+kubectl port-forward -n conversor-homolog svc/<release>-conversor-temperatura 8080:80
 ```
 
-**Pré-requisito no cluster:** controller Argo Rollouts instalado (`argo-rollouts`). Se o `kubectl apply` do install falhar por annotation grande nos CRDs:
+#### Modo canary (Argo Rollouts)
+
+Sobe gradualmente: **50%** pods novos → **pause 60s** → **100%**.  
+Namespace de teste: `conversor-canary`. Requer o controller Argo Rollouts:
 
 ```bash
 kubectl apply --server-side --force-conflicts -n argo-rollouts \
   -f https://github.com/argoproj/argo-rollouts/releases/latest/download/install.yaml
 ```
 
-**Acompanhar um deploy (homolog):**
-
 ```bash
-kubectl get rollout -n conversor-homolog -w
-# com o plugin:
-kubectl argo rollouts get rollout conversor-temperatura-homolog-conversor-temperatura \
-  -n conversor-homolog -w
+helm upgrade --install conversor-canary ./charts/conversor-temperatura-canary \
+  -n conversor-canary --create-namespace \
+  --set application.image.tag=<sha>
+
+kubectl get rollout -n conversor-canary -w
+kubectl argo rollouts get rollout conversor-canary-conversor-temperatura -n conversor-canary -w
 ```
 
-**Steps padrão** (ajustáveis em `application.canary.steps` no chart): `setWeight: 50` → `pause: 60s` → `setWeight: 100`. Use **2+ replicas** para o canary fazer sentido.
-
-**Migração:** se ainda existir um `Deployment` antigo do conversor no namespace, apague-o após o sync do Rollout para evitar conflito.
-
-Chart: repo `helm-charts` → `charts/conversor-temperatura` (`templates/rollout.yaml`).
+`kubectl port-forward` no Service costuma fixar em **um** pod; para ver mix de versões, use curl in-cluster ou forward por pod.  
+Application de exemplo no gitops: `apps/conversor-temperatura-canary.yaml`.
 
 ### Pipeline Jenkins
 Configuração e execução da CI (testes, build e push da imagem Docker) em [JENKINS.md](JENKINS.md).
