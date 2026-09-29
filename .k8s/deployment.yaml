@@ -14,6 +14,19 @@ spec:
     spec:
       containers:
       - name: app
-        image: felipecs8/conversor-temperatura:v1
+        image: felipecs8/conversor-temperatura:latest
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8080
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5

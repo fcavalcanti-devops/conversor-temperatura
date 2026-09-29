@@ -14,7 +14,6 @@ on:
 permissions:
   contents: read
 
-# Nao cancela uma publicacao em andamento.
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -35,10 +34,10 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'production' || 'homolog' }}
 
     permissions:
       contents: read
-      security-events: write
 
     steps:
       - name: Check Out Repo
@@ -56,16 +55,17 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # main    -> latest
-      # homolog -> homolog
-      # v1.2.3  -> 1.2.3, 1.2
-      # Deploy imutavel: usar digest (@sha256:...) do job summary, nao tags sha-* / main.
+      # Sempre: tag imutavel = git sha (igual github.sha)
+      # main    -> latest + <sha>
+      # homolog -> homolog + <sha>
+      # v1.2.3  -> 1.2.3, 1.2 (+ sha do commit da tag)
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE_NAME }}
           tags: |
+            type=sha,prefix=,format=long
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=homolog,enable=${{ github.ref == format('refs/heads/{0}', 'homolog') }}
             type=semver,pattern={{version}}
@@ -103,18 +103,10 @@ jobs:
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
-          format: sarif
-          output: trivy-results.sarif
+          format: table
           severity: CRITICAL,HIGH
           ignore-unfixed: true
-
-      - name: Upload scan results
-        if: always()
-        continue-on-error: true
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: trivy-results.sarif
-          category: trivy-image
+          exit-code: '0'
 
       - name: Job summary
         run: |
@@ -123,8 +115,45 @@ jobs:
             echo ''
             echo "Digest: \`${{ steps.build.outputs.digest }}\`"
             echo ''
+            echo "Tag imutavel (git sha): \`${{ env.IMAGE_NAME }}:${{ github.sha }}\`"
+            echo ''
             echo 'Tags:'
             echo '```'
             echo "${{ steps.meta.outputs.tags }}"
             echo '```'
+            echo ''
           } >> "$GITHUB_STEP_SUMMARY"
+
+  update-helm:
+    name: 'Atualizar Helm'
+    needs: publish
+    runs-on: ubuntu-latest
+    # Deploy real → barra na UI; tag v* = production, branch = homolog
+    environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'production' || 'homolog' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: fcavalcanti-devops/helm-charts
+          token: ${{ secrets.HELM_CHARTS_TOKEN }}
+      - run: |
+          TAG="${{ github.sha }}"
+          [[ "${{ github.ref }}" == refs/tags/v* ]] && TAG="${GITHUB_REF_NAME#v}"
+          sed -i "s/tag:.*/tag: ${TAG}/" charts/conversor-temperatura/values.yaml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -am "chore: update conversor-temperatura to ${TAG}" || exit 0
+          git push
+
+  cleanup-hub:
+    name: 'Cleanup Docker Hub'
+    needs: publish
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - name: Remover tags sha antigas
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          KEEP: '10'
+        run: bash scripts/cleanup-dockerhub.sh
