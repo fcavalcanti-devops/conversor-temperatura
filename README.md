@@ -59,8 +59,10 @@ git push origin v1.0.1
 **Secrets necessários** (Settings → Secrets and variables → Actions):
 
 - `DOCKERHUB_USERNAME`: usuário do Docker Hub
-- `DOCKERHUB_TOKEN`: access token do Docker Hub com permissão de escrita
+- `DOCKERHUB_TOKEN`: access token do Docker Hub com **Read/Write/Delete** (push + cleanup de tags)
 - `HELM_CHARTS_TOKEN`: PAT com **Contents: write** em `fcavalcanti-devops/helm-charts`
+
+Após cada Release, o job **Cleanup Docker Hub** chama a API do Hub e apaga tags **sha** antigas (mantém as 10 mais recentes; `latest`/`homolog`/semver não são sha e ficam).
 
 ### Pipeline Jenkins
 Configuração e execução da CI (testes, build e push da imagem Docker) em [JENKINS.md](JENKINS.md).
