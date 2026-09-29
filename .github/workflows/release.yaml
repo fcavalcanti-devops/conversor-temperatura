@@ -140,3 +140,17 @@ jobs:
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git commit -am "chore: update conversor-temperatura to ${TAG}" || exit 0
           git push
+
+  cleanup-hub:
+    name: 'Cleanup Docker Hub'
+    needs: publish
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - name: Remover tags sha antigas
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          KEEP: '10'
+        run: bash scripts/cleanup-dockerhub.sh
