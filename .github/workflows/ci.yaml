@@ -26,6 +26,8 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Mostra a barra de deploy na UI do Actions (Environments).
+    environment: ci
 
     env:
       LOCAL_IMAGE: conversor-temperatura:ci-${{ github.sha }}
