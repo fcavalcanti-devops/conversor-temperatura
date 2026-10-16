@@ -1,0 +1,285 @@
+name: 'Release'
+
+on:
+  push:
+    branches:
+      - main
+      - homolog
+    tags:
+      - 'v*'
+    paths-ignore:
+      - '**.md'
+      - '.k8s/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: felipecs8/conversor-temperatura
+
+jobs:
+  test:
+    name: 'Testes'
+    if: github.ref_type == 'branch'
+    uses: ./.github/workflows/test.yaml
+    permissions:
+      contents: read
+      pull-requests: read
+
+  publish:
+    name: 'Build e push da imagem'
+    if: github.ref_type == 'branch'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: homolog
+
+    permissions:
+      contents: read
+
+    env:
+      CANDIDATE_IMAGE: conversor-temperatura:candidate-${{ github.sha }}
+
+    steps:
+      - name: Check Out Repo
+        uses: actions/checkout@v7
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Sempre: tag imutavel = git sha (igual github.sha)
+      # main    -> latest + <sha>
+      # homolog -> homolog + <sha>
+      # As tags de versao (v1.2.3) sao aplicadas depois, pelo job promote.
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=,format=long
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=homolog,enable=${{ github.ref == format('refs/heads/{0}', 'homolog') }}
+          flavor: |
+            latest=false
+
+      # Nada vai para o Docker Hub antes de passar no smoke e no Trivy.
+      - name: Build candidate image (amd64)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: false
+          load: true
+          tags: ${{ env.CANDIDATE_IMAGE }}
+          cache-from: type=gha
+
+      - name: Smoke test
+        shell: bash
+        run: bash scripts/smoke.sh "$CANDIDATE_IMAGE"
+
+      - name: Remove smoke container
+        if: always()
+        run: docker rm -f smoke
+
+      - name: Scan image (Trivy)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.CANDIDATE_IMAGE }}
+          format: table
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '0'
+
+      - name: Fail on critical vulnerabilities
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.CANDIDATE_IMAGE }}
+          format: table
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          skip-setup-trivy: true
+
+      - name: Build and push (multi-arch)
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          provenance: true
+          sbom: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Job summary
+        run: |
+          {
+            echo '### Imagem publicada'
+            echo ''
+            echo "Digest: \`${{ steps.build.outputs.digest }}\`"
+            echo ''
+            echo "Tag imutavel (git sha): \`${{ env.IMAGE_NAME }}:${{ github.sha }}\`"
+            echo ''
+            echo 'Tags:'
+            echo '```'
+            echo "${{ steps.meta.outputs.tags }}"
+            echo '```'
+            echo ''
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Tag v* nao rebuilda: reaproveita a imagem que o push na main ja testou e
+  # publicou para o mesmo commit, e so adiciona as tags de versao ao digest.
+  promote:
+    name: 'Promover imagem para producao'
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # v1.2.3 -> 1.2.3, 1.2
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+          flavor: |
+            latest=false
+
+      - name: Promote image
+        shell: bash
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          SRC="${IMAGE_NAME}:${GITHUB_SHA}"
+
+          if [ -z "$TAGS" ]; then
+            echo "::error::A tag ${GITHUB_REF_NAME} nao e semver (esperado vX.Y.Z)."
+            exit 1
+          fi
+
+          if ! docker buildx imagetools inspect "$SRC" >/dev/null 2>&1; then
+            echo "::error::A imagem $SRC nao existe no Docker Hub. Crie a tag em um commit que gerou imagem na main (commits so de .md/.k8s nao geram) e que ainda nao foi removido pelo cleanup."
+            exit 1
+          fi
+
+          digest_of() {
+            docker buildx imagetools inspect "$1" --format '{{json .Manifest}}' | jq -r .digest
+          }
+          SRC_DIGEST="$(digest_of "$SRC")"
+
+          args=()
+          while read -r tag; do
+            [ -n "$tag" ] && args+=(-t "$tag")
+          done <<< "$TAGS"
+          docker buildx imagetools create "${args[@]}" "$SRC"
+
+          while read -r tag; do
+            [ -z "$tag" ] && continue
+            if [ "$(digest_of "$tag")" != "$SRC_DIGEST" ]; then
+              echo "::error::$tag nao aponta para o digest promovido ($SRC_DIGEST)"
+              exit 1
+            fi
+          done <<< "$TAGS"
+
+          {
+            echo '### Imagem promovida para producao'
+            echo ''
+            echo "Origem: \`$SRC\`"
+            echo ''
+            echo "Digest: \`$SRC_DIGEST\`"
+            echo ''
+            echo 'Tags:'
+            echo '```'
+            echo "$TAGS"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  update-helm:
+    name: 'Atualizar Helm'
+    needs: [publish, promote]
+    if: ${{ !cancelled() && (needs.publish.result == 'success' || needs.promote.result == 'success') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Deploy real → barra na UI; tag v* = production, branch = homolog
+    environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'production' || 'homolog' }}
+    concurrency:
+      group: update-helm-conversor-temperatura
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: fcavalcanti-devops/helm-charts
+          token: ${{ secrets.HELM_CHARTS_TOKEN }}
+
+      # Cada ambiente tem seu arquivo de tag, lido so pela Application dele no gitops.
+      - name: Atualizar tag da imagem
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            ENV=prod
+            TAG="${GITHUB_REF_NAME#v}"
+          else
+            ENV=homolog
+            TAG="$GITHUB_SHA"
+          fi
+          FILE="charts/conversor-temperatura/values-${ENV}.yaml"
+
+          TAG="$TAG" yq -i '.application.image.tag = strenv(TAG)' "$FILE"
+
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add "$FILE"
+          git commit -m "chore(${ENV}): update conversor-temperatura to ${TAG}" || exit 0
+
+          for _ in 1 2 3; do
+            git push && exit 0
+            git pull --rebase
+          done
+          exit 1
+
+  cleanup-hub:
+    name: 'Cleanup Docker Hub'
+    needs: publish
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - name: Remover tags sha antigas
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          KEEP: '10'
+        run: bash scripts/cleanup-dockerhub.sh
