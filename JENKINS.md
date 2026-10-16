@@ -10,7 +10,7 @@ A pipeline executa em sequência:
 
 | Estágio           | O que faz                                                                 | Agente        |
 |-------------------|---------------------------------------------------------------------------|---------------|
-| **Test**          | Roda em container `node:20`: instala dependências e executa `npm test`   | Docker (node:20) |
+| **Test**          | Roda em container `node:24`: instala dependências e executa `npm test`   | Docker (node:24) |
 | **Build Docker**  | Constrói a imagem Docker do app (`docker build`)                          | Qualquer (com Docker) |
 | **Push to Docker Hub** | Faz login, taga a imagem e envia para o Docker Hub                 | Qualquer (com Docker) |
 
@@ -31,12 +31,12 @@ O estágio **Test** garante que só se segue para build e push se os testes pass
 
 - Os estágios **Build Docker** e **Push to Docker Hub** usam `agent any`, então pelo menos um agente deve ter:
   - **Docker** instalado e o usuário do Jenkins com permissão para usar Docker (`docker build`, `docker push`).
-- O estágio **Test** usa `agent { docker { image 'node:20' } }`, então o agente precisa conseguir rodar containers Docker (Docker-in-Docker ou Docker socket montado).
+- O estágio **Test** usa `agent { docker { image 'node:24' } }`, então o agente precisa conseguir rodar containers Docker (Docker-in-Docker ou Docker socket montado).
 
 ### 3. Plugins
 
 - **Pipeline** (Pipeline plugin).
-- **Docker Pipeline** (para `agent { docker { image 'node:20' } }`).
+- **Docker Pipeline** (para `agent { docker { image 'node:24' } }`).
 - Se for usar **Multibranch Pipeline**: **Branch API** / **Multibranch Pipeline**.
 
 ---
@@ -88,7 +88,7 @@ O Jenkins varre as branches, descobre o `Jenkinsfile` e cria um sub-job por bran
 |-------------------|---------------------------------------------------------|
 | Arquivo da pipeline | `Jenkinsfile` (raiz do repositório)                  |
 | Credenciais ID    | `dockerhub-credentials`                                 |
-| Imagem de teste   | `node:20` (container efêmero)                          |
+| Imagem de teste   | `node:24` (container efêmero)                          |
 | Imagem gerada     | `app:latest` (local); push como `USER/jenkins-pipeline-test:latest` |
 
 Para rodar a aplicação a partir da imagem construída, use a imagem do Docker Hub no seu ambiente (Kubernetes, `docker run`, etc.).
