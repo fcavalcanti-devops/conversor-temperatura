@@ -39,6 +39,9 @@ jobs:
     permissions:
       contents: read
 
+    env:
+      CANDIDATE_IMAGE: conversor-temperatura:candidate-${{ github.sha }}
+
     steps:
       - name: Check Out Repo
         uses: actions/checkout@v7
@@ -73,7 +76,44 @@ jobs:
           flavor: |
             latest=false
 
-      - name: Build and push
+      # Nada vai para o Docker Hub antes de passar no smoke e no Trivy.
+      - name: Build candidate image (amd64)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: false
+          load: true
+          tags: ${{ env.CANDIDATE_IMAGE }}
+          cache-from: type=gha
+
+      - name: Smoke test
+        shell: bash
+        run: bash scripts/smoke.sh "$CANDIDATE_IMAGE"
+
+      - name: Remove smoke container
+        if: always()
+        run: docker rm -f smoke
+
+      - name: Scan image (Trivy)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.CANDIDATE_IMAGE }}
+          format: table
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '0'
+
+      - name: Fail on critical vulnerabilities
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.CANDIDATE_IMAGE }}
+          format: table
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          skip-setup-trivy: true
+
+      - name: Build and push (multi-arch)
         id: build
         uses: docker/build-push-action@v7
         with:
@@ -87,26 +127,6 @@ jobs:
           sbom: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      - name: Smoke published image
-        env:
-          SMOKE_IMAGE: ${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
-        run: |
-          docker pull "$SMOKE_IMAGE"
-          bash scripts/smoke.sh "$SMOKE_IMAGE"
-
-      - name: Remove smoke container
-        if: always()
-        run: docker rm -f smoke
-
-      - name: Scan published image (Trivy)
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: ${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
-          format: table
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: '0'
 
       - name: Job summary
         run: |
@@ -128,21 +148,43 @@ jobs:
     name: 'Atualizar Helm'
     needs: publish
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     # Deploy real → barra na UI; tag v* = production, branch = homolog
     environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'production' || 'homolog' }}
+    concurrency:
+      group: update-helm-conversor-temperatura
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
         with:
           repository: fcavalcanti-devops/helm-charts
           token: ${{ secrets.HELM_CHARTS_TOKEN }}
-      - run: |
-          TAG="${{ github.sha }}"
-          [[ "${{ github.ref }}" == refs/tags/v* ]] && TAG="${GITHUB_REF_NAME#v}"
-          sed -i "s/tag:.*/tag: ${TAG}/" charts/conversor-temperatura/values.yaml
+
+      # Cada ambiente tem seu arquivo de tag, lido so pela Application dele no gitops.
+      - name: Atualizar tag da imagem
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            ENV=prod
+            TAG="${GITHUB_REF_NAME#v}"
+          else
+            ENV=homolog
+            TAG="$GITHUB_SHA"
+          fi
+          FILE="charts/conversor-temperatura/values-${ENV}.yaml"
+
+          TAG="$TAG" yq -i '.application.image.tag = strenv(TAG)' "$FILE"
+
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git commit -am "chore: update conversor-temperatura to ${TAG}" || exit 0
-          git push
+          git add "$FILE"
+          git commit -m "chore(${ENV}): update conversor-temperatura to ${TAG}" || exit 0
+
+          for _ in 1 2 3; do
+            git push && exit 0
+            git pull --rebase
+          done
+          exit 1
 
   cleanup-hub:
     name: 'Cleanup Docker Hub'
