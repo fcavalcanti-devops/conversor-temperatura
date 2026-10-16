@@ -24,6 +24,7 @@ env:
 jobs:
   test:
     name: 'Testes'
+    if: github.ref_type == 'branch'
     uses: ./.github/workflows/test.yaml
     permissions:
       contents: read
@@ -31,10 +32,11 @@ jobs:
 
   publish:
     name: 'Build e push da imagem'
+    if: github.ref_type == 'branch'
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'production' || 'homolog' }}
+    environment: homolog
 
     permissions:
       contents: read
@@ -61,7 +63,7 @@ jobs:
       # Sempre: tag imutavel = git sha (igual github.sha)
       # main    -> latest + <sha>
       # homolog -> homolog + <sha>
-      # v1.2.3  -> 1.2.3, 1.2 (+ sha do commit da tag)
+      # As tags de versao (v1.2.3) sao aplicadas depois, pelo job promote.
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@v6
@@ -71,8 +73,6 @@ jobs:
             type=sha,prefix=,format=long
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=homolog,enable=${{ github.ref == format('refs/heads/{0}', 'homolog') }}
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
           flavor: |
             latest=false
 
@@ -144,9 +144,93 @@ jobs:
             echo ''
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # Tag v* nao rebuilda: reaproveita a imagem que o push na main ja testou e
+  # publicou para o mesmo commit, e so adiciona as tags de versao ao digest.
+  promote:
+    name: 'Promover imagem para producao'
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # v1.2.3 -> 1.2.3, 1.2
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+          flavor: |
+            latest=false
+
+      - name: Promote image
+        shell: bash
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          SRC="${IMAGE_NAME}:${GITHUB_SHA}"
+
+          if [ -z "$TAGS" ]; then
+            echo "::error::A tag ${GITHUB_REF_NAME} nao e semver (esperado vX.Y.Z)."
+            exit 1
+          fi
+
+          if ! docker buildx imagetools inspect "$SRC" >/dev/null 2>&1; then
+            echo "::error::A imagem $SRC nao existe no Docker Hub. Crie a tag em um commit que gerou imagem na main (commits so de .md/.k8s nao geram) e que ainda nao foi removido pelo cleanup."
+            exit 1
+          fi
+
+          digest_of() {
+            docker buildx imagetools inspect "$1" --format '{{json .Manifest}}' | jq -r .digest
+          }
+          SRC_DIGEST="$(digest_of "$SRC")"
+
+          args=()
+          while read -r tag; do
+            [ -n "$tag" ] && args+=(-t "$tag")
+          done <<< "$TAGS"
+          docker buildx imagetools create "${args[@]}" "$SRC"
+
+          while read -r tag; do
+            [ -z "$tag" ] && continue
+            if [ "$(digest_of "$tag")" != "$SRC_DIGEST" ]; then
+              echo "::error::$tag nao aponta para o digest promovido ($SRC_DIGEST)"
+              exit 1
+            fi
+          done <<< "$TAGS"
+
+          {
+            echo '### Imagem promovida para producao'
+            echo ''
+            echo "Origem: \`$SRC\`"
+            echo ''
+            echo "Digest: \`$SRC_DIGEST\`"
+            echo ''
+            echo 'Tags:'
+            echo '```'
+            echo "$TAGS"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   update-helm:
     name: 'Atualizar Helm'
-    needs: publish
+    needs: [publish, promote]
+    if: ${{ !cancelled() && (needs.publish.result == 'success' || needs.promote.result == 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # Deploy real → barra na UI; tag v* = production, branch = homolog
