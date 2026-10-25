@@ -41,6 +41,8 @@ Checa `/health` (app up), rotas de conversão, a página `/` e que o container n
 
 Os checks de qualidade rodam em `.github/workflows/test.yaml` (Gitleaks, lint, testes e audit), um workflow reutilizável chamado tanto pela CI quanto pelo release, então nada é publicado sem eles passarem.
 
+Fluxo detalhado de cada workflow e job em [.github/workflows/README.md](.github/workflows/README.md).
+
 Imagem: `felipecs8/conversor-temperatura` (multi-arch `linux/amd64` e `linux/arm64`, SBOM e proveniência).
 
 **Tags publicadas**
