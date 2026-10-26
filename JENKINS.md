@@ -51,7 +51,7 @@ O estágio **Test** garante que só se segue para build e push se os testes pass
    - **SCM**: Git.
    - **Repository URL**: URL do repositório (ex.: `https://github.com/KubeDev/conversao-temperatura.git`).
    - **Credentials**: se o repositório for privado.
-   - **Branch**: `*/main`, `*/master` ou `*/homolog`, conforme seu fluxo.
+   - **Branch**: `*/homolog` (branch default), `*/main` ou `*/master`, conforme seu fluxo.
 3. **Script Path**: `Jenkinsfile` (padrão, na raiz do repositório).
 4. Salvar.
 

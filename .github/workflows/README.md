@@ -9,9 +9,9 @@ Este documento descreve a esteira de CI/CD do **Conversor de Temperatura**: quai
 | Arquivo | Gatilho | Papel |
 |---|---|---|
 | `test.yaml` | `workflow_call` (reutilizável) | Checks de qualidade: Gitleaks, lint, testes e audit |
-| `ci.yaml` | Pull request para `main` ou `homolog` | Valida o PR: testes + build da imagem **sem push**, smoke e Trivy |
-| `codeql.yaml` | Pull request para `main`/`homolog` e push em `main` | Análise estática (SAST) do código JS e dos próprios workflows |
-| `release.yaml` | Push em `main`/`homolog` e tag `v*` | Publica a imagem, promove para produção e atualiza o Helm (GitOps) |
+| `ci.yaml` | Pull request para `homolog` (branch default) ou `main` | Valida o PR: testes + build da imagem **sem push**, smoke e Trivy |
+| `codeql.yaml` | Pull request para `homolog`/`main` e push nessas branches | Análise estática (SAST) do código JS e dos próprios workflows |
+| `release.yaml` | Push em `homolog`/`main` e tag `v*` | Publica a imagem, promove para produção e atualiza o Helm (GitOps) |
 
 Arquivos relacionados fora desta pasta:
 
@@ -25,13 +25,13 @@ Arquivos relacionados fora desta pasta:
 
 ```mermaid
 flowchart TD
-    PR[Pull request para main/homolog] --> CI[ci.yaml]
+    PR[Pull request para homolog/main] --> CI[ci.yaml]
     PR --> CQ[codeql.yaml]
     CI --> T1[test.yaml]
     T1 --> B[build: hadolint, build local, smoke, Trivy]
 
-    PUSH[Push em main/homolog] --> REL[release.yaml]
-    PUSH -.->|so main| CQ
+    PUSH[Push em homolog/main] --> REL[release.yaml]
+    PUSH -.->|push em homolog e main| CQ
     REL --> T2[test.yaml]
     T2 --> PUB[publish: candidata, smoke, Trivy, push multi-arch]
     PUB --> HH[update-helm: values-homolog.yaml]
@@ -48,8 +48,8 @@ flowchart TD
 Resumo do ciclo de vida de uma mudança:
 
 1. **PR** → `ci.yaml` e `codeql.yaml` validam a mudança. Nada é publicado.
-2. **Merge em `homolog` ou `main`** → `release.yaml` testa de novo, publica a imagem com a tag `<git-sha>` e atualiza `values-homolog.yaml` no repo `helm-charts`. O Argo faz o deploy em homolog.
-3. **Tag `vX.Y.Z` num commit da `main`** → `release.yaml` **não rebuilda**: reaproveita a imagem `<git-sha>` já testada, adiciona as tags de versão ao mesmo digest e atualiza `values-prod.yaml`. O Argo faz o deploy em produção.
+2. **Merge em `homolog` (branch default) ou `main`** → `release.yaml` testa de novo, publica a imagem com a tag `<git-sha>` e atualiza `values-homolog.yaml` no repo `helm-charts`. O Argo faz o deploy em homolog. O push em `homolog` também move as tags `latest` e `homolog`.
+3. **Tag `vX.Y.Z` num commit já publicado** → `release.yaml` **não rebuilda**: reaproveita a imagem `<git-sha>` já testada, adiciona as tags de versão ao mesmo digest e atualiza `values-prod.yaml`. O Argo faz o deploy em produção.
 
 ---
 
@@ -72,7 +72,7 @@ A matriz usa `fail-fast: false`: uma versão do Node falhando não cancela a out
 
 ## `ci.yaml` — validação de pull request
 
-**Gatilho:** pull request com destino `main` ou `homolog`.
+**Gatilho:** pull request com destino `homolog` (branch default) ou `main`.
 **Concorrência:** um novo push no mesmo PR cancela a execução anterior (`cancel-in-progress: true`).
 
 ```
@@ -93,7 +93,7 @@ Como não há push nem uso de secrets, a CI funciona também em PRs vindos de fo
 
 ## `codeql.yaml` — análise estática
 
-**Gatilhos:** pull request para `main`/`homolog` e push em `main`.
+**Gatilhos:** pull request para `homolog`/`main` e push nessas duas branches. O push em `homolog` cobre a branch default.
 
 Roda o CodeQL em matriz com duas linguagens:
 
@@ -110,7 +110,7 @@ Os resultados aparecem em **Security → Code scanning**.
 
 **Gatilhos:**
 
-- Push em `main` ou `homolog`, **exceto** quando o commit altera apenas `**.md` ou `.k8s/**`.
+- Push em `homolog` ou `main`, **exceto** quando o commit altera apenas `**.md` ou `.k8s/**`.
 - Push de tag `v*` (o filtro `paths-ignore` não se aplica a tags).
 
 **Concorrência:** uma execução por ref, **sem cancelar** a que está em andamento — uma publicação nunca é interrompida no meio.
@@ -122,12 +122,12 @@ Variável global: `IMAGE_NAME=felipecs8/conversor-temperatura`.
 | Job | Push em `homolog` | Push em `main` | Tag `vX.Y.Z` |
 |---|---|---|---|
 | `test` | ✅ | ✅ | — |
-| `publish` | ✅ (tags `<sha>` + `homolog`) | ✅ (tags `<sha>` + `latest`) | — |
+| `publish` | ✅ (tags `<sha>` + `latest` + `homolog`) | ✅ (só `<sha>`) | — |
 | `promote` | — | — | ✅ |
 | `update-helm` | ✅ → `values-homolog.yaml` | ✅ → `values-homolog.yaml` | ✅ → `values-prod.yaml` |
 | `cleanup-hub` | ✅ | ✅ | — |
 
-> Push em `main` também atualiza **homolog**. Produção só muda via tag `v*`.
+> Push em `homolog` ou `main` atualiza o ambiente de **homolog**. Produção só muda via tag `v*`. A tag `latest` só anda no push de `homolog`.
 
 ### Job `publish` — build e push da imagem
 
@@ -137,8 +137,7 @@ O princípio é: **nada vai para o Docker Hub antes de passar no smoke e no Triv
 
 1. **Docker metadata** — calcula as tags:
    - `<git-sha>` (sempre, formato longo — é a tag imutável usada no deploy);
-   - `latest` (só na `main`);
-   - `homolog` (só na branch `homolog`).
+   - `latest` e `homolog` (só no push da branch default `homolog`).
 2. **Build da candidata (amd64)** — build local, sem push: `conversor-temperatura:candidate-<sha>`.
 3. **Smoke test** na candidata.
 4. **Trivy** — relatório de `CRITICAL`/`HIGH` e gate que falha em `CRITICAL` com correção.
@@ -149,7 +148,7 @@ O princípio é: **nada vai para o Docker Hub antes de passar no smoke e no Triv
 
 Roda só em push de tag. Environment: `production`.
 
-Não faz build. Reaproveita a imagem `felipecs8/conversor-temperatura:<git-sha>` que o push na `main` já testou e publicou para o **mesmo commit** da tag:
+Não faz build. Reaproveita a imagem `felipecs8/conversor-temperatura:<git-sha>` que o push em `homolog` ou `main` já testou e publicou para o **mesmo commit** da tag:
 
 1. Calcula as tags semver a partir da tag git: `v1.2.3` → `1.2.3` e `1.2`.
 2. Falha se a tag não for semver (`vX.Y.Z`).
@@ -215,21 +214,20 @@ bash scripts/smoke.sh conversor-temperatura:local
 
 | Tag | Quando é criada | Uso |
 |---|---|---|
-| `<git-sha>` | Todo push em `main`/`homolog` | **Imutável.** Usada no Helm de homolog e como origem da promoção |
-| `homolog` | Push em `homolog` | Atalho móvel, não usar em deploy |
-| `latest` | Push em `main` | Atalho móvel, não usar em deploy |
+| `<git-sha>` | Todo push em `homolog`/`main` | **Imutável.** Usada no Helm de homolog e como origem da promoção |
+| `latest`, `homolog` | Push em `homolog` (branch default) | Atalhos móveis, não usar em deploy |
 | `X.Y.Z`, `X.Y` | Tag git `vX.Y.Z` | Produção (mesmo digest do `<git-sha>` do commit) |
 
 ---
 
 ## Como fazer uma release para produção
 
-1. Faça o merge na `main` e espere o `release.yaml` terminar (a imagem `<git-sha>` precisa existir).
+1. Faça o merge na `homolog` (branch default) e espere o `release.yaml` terminar (a imagem `<git-sha>` precisa existir).
 2. Confira em homolog que está tudo certo.
-3. Crie e envie a tag **no mesmo commit** da `main`:
+3. Crie e envie a tag **no mesmo commit** da `homolog`:
 
 ```bash
-git checkout main
+git checkout homolog
 git pull
 git tag v1.2.3
 git push origin v1.2.3
@@ -272,7 +270,7 @@ Configurado em `.github/dependabot.yml`, roda semanalmente:
 - **GitHub Actions** — todas as actions agrupadas num único PR.
 - **Docker** (imagem base) — ignora majors, para não sair da LTS do Node escolhida.
 
-Os PRs do Dependabot passam pela mesma `ci.yaml` e `codeql.yaml` de qualquer PR.
+Os PRs do Dependabot abrem contra `homolog` (`target-branch`) e passam pela mesma `ci.yaml` e `codeql.yaml` de qualquer PR.
 
 ---
 
@@ -281,10 +279,10 @@ Os PRs do Dependabot passam pela mesma `ci.yaml` e `codeql.yaml` de qualquer PR.
 **`promote` falha com "A imagem ... nao existe no Docker Hub"**
 A tag foi criada num commit que não gerou imagem. Causas possíveis:
 - o commit só alterou `.md` ou `.k8s/` (o `paths-ignore` não dispara o release);
-- o commit não está na `main` / o release da `main` ainda não terminou;
+- o commit não passou por um push em `homolog` ou `main`, ou o release desse push ainda não terminou;
 - a tag sha já foi removida pelo `cleanup-hub` (mais de 10 publicações depois).
 
-Solução: crie a tag no último commit da `main` que tenha um release com sucesso.
+Solução: crie a tag no último commit da `homolog` que tenha um release com sucesso.
 
 **`promote` falha com "nao e semver"**
 A tag precisa seguir `vX.Y.Z` (ex.: `v1.2.3`).
