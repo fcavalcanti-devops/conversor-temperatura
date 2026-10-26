@@ -34,10 +34,10 @@ Checa `/health` (app up), rotas de conversão, a página `/` e que o container n
 
 | Gatilho | Workflow | O que acontece |
 |---|---|---|
-| Pull request para `main` ou `homolog` | `.github/workflows/ci.yaml` | Gitleaks, lint (ESLint), testes (Node 22 e 24), lint do Dockerfile, build **sem push**, smoke e scan Trivy |
-| Push em `homolog` | `.github/workflows/release.yaml` | Testes, publicação (`homolog` + tag **git sha**), smoke e Trivy |
-| Push em `main` | `.github/workflows/release.yaml` | Testes, publicação (`latest` + tag **git sha**), smoke e Trivy |
-| Tag `v1.2.3` | `.github/workflows/release.yaml` | **Sem rebuild:** promove a imagem `<git-sha>` já publicada pela `main`, adicionando `1.2.3` e `1.2` ao mesmo digest, e atualiza produção |
+| Pull request para `homolog` (branch default) ou `main` | `.github/workflows/ci.yaml` | Gitleaks, lint (ESLint), testes (Node 22 e 24), lint do Dockerfile, build **sem push**, smoke e scan Trivy |
+| Push em `homolog` | `.github/workflows/release.yaml` | Testes, publicação (`latest` + `homolog` + tag **git sha**), smoke e Trivy |
+| Push em `main` | `.github/workflows/release.yaml` | Testes, publicação (só a tag **git sha**), smoke e Trivy |
+| Tag `v1.2.3` | `.github/workflows/release.yaml` | **Sem rebuild:** promove a imagem `<git-sha>` já publicada pelo push da branch, adicionando `1.2.3` e `1.2` ao mesmo digest, e atualiza produção |
 
 Os checks de qualidade rodam em `.github/workflows/test.yaml` (Gitleaks, lint, testes e audit), um workflow reutilizável chamado tanto pela CI quanto pelo release, então nada é publicado sem eles passarem.
 
@@ -47,11 +47,13 @@ Imagem: `felipecs8/conversor-temperatura` (multi-arch `linux/amd64` e `linux/arm
 
 **Tags publicadas**
 - **Imutável:** `<git-sha>` (= `github.sha`) — use no Helm/Argo para deploy dinâmico
-- **Atalhos:** `homolog` (branch homolog), `latest` (branch main)
-- **Release:** `1.2.3`, `1.2` ao criar tag git `v1.2.3` — mesmo digest da imagem `<git-sha>` que rodou em homolog. A tag precisa estar num commit que gerou imagem na `main` (commits só de `.md`/`.k8s` não geram) e cuja tag sha ainda não foi removida pelo cleanup.
+- **Atalhos:** `latest` e `homolog` (push na branch default `homolog`)
+- **Release:** `1.2.3`, `1.2` ao criar tag git `v1.2.3` — mesmo digest da imagem `<git-sha>` que rodou em homolog. A tag precisa estar num commit que gerou imagem no push de `homolog` ou `main` (commits só de `.md`/`.k8s` não geram) e cuja tag sha ainda não foi removida pelo cleanup.
 
 ```bash
-# Criar release versionada (na main atualizada)
+# Criar release versionada (na homolog, branch default, já publicada)
+git checkout homolog
+git pull
 git tag v1.0.1
 git push origin v1.0.1
 ```
