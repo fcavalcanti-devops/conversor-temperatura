@@ -238,7 +238,7 @@ A configuração está em `release-please-config.json` e `.release-please-manife
 
 - Pacote Node em `src` (atualiza `src/package.json` e o lock). A versão atual registrada é `1.0.0`.
 - Tag `vX.Y.Z`, sem prefixo do componente.
-- Changelog na raiz, `CHANGELOG.md`.
+- Changelog em `src/CHANGELOG.md`. O caminho é relativo ao pacote. `../` é recusado pelo Release Please.
 - `bootstrap-sha` no commit anterior a esta adoção. O histórico anterior não entra na primeira release.
 
 Versão a partir da mensagem do commit:
