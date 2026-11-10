@@ -1,6 +1,6 @@
 {
   "name": "conversao-temperatura",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Conversor de temperatura entre Celsius e Fahrenheit",
   "main": "app.js",
   "engines": {
