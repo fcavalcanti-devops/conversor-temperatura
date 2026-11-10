@@ -12,12 +12,14 @@ Este documento descreve a esteira de CI/CD do **Conversor de Temperatura**: quai
 | `ci.yaml` | Pull request para `homolog` (branch default) ou `main` | Valida o PR: testes + build da imagem **sem push**, smoke e Trivy |
 | `codeql.yaml` | Pull request para `homolog`/`main` e push nessas branches | Análise estática (SAST) do código JS e dos próprios workflows |
 | `release.yaml` | Push em `homolog`/`main` e tag `v*` | Publica a imagem, promove para produção e atualiza o Helm (GitOps) |
+| `release-please.yaml` | `workflow_run` depois de um Release em `homolog` com sucesso | Abre o PR de release e, no merge, cria a tag `v*` |
 
 Arquivos relacionados fora desta pasta:
 
 - `scripts/smoke.sh` — smoke test da imagem (usado pela CI e pelo release).
 - `scripts/cleanup-dockerhub.sh` — remove tags sha antigas do Docker Hub.
 - `.github/dependabot.yml` — atualização automática de dependências npm, actions e imagem base.
+- `release-please-config.json` e `.release-please-manifest.json` — versão e changelog da tag de produção.
 
 ---
 
@@ -36,8 +38,13 @@ flowchart TD
     T2 --> PUB[publish: candidata, smoke, Trivy, push multi-arch]
     PUB --> HH[update-helm: values-homolog.yaml]
     PUB --> CL[cleanup-hub]
+    PUB --> RP[release-please.yaml]
+    RP --> RPR[PR de release]
+    RPR --> MERGE[Merge em homolog]
+    MERGE --> REL
+    RP --> TAG[Tag vX.Y.Z se o PR de release ja foi mergeado]
 
-    TAG[Tag vX.Y.Z] --> REL2[release.yaml]
+    TAG --> REL2[release.yaml]
     REL2 --> PRO[promote: adiciona X.Y.Z e X.Y ao digest do sha]
     PRO --> HP[update-helm: values-prod.yaml]
 
@@ -49,7 +56,8 @@ Resumo do ciclo de vida de uma mudança:
 
 1. **PR** → `ci.yaml` e `codeql.yaml` validam a mudança. Nada é publicado.
 2. **Merge em `homolog` (branch default) ou `main`** → `release.yaml` testa de novo, publica a imagem com a tag `<git-sha>` e atualiza `values-homolog.yaml` no repo `helm-charts`. O Argo faz o deploy em homolog. O push em `homolog` também move as tags `latest` e `homolog`.
-3. **Tag `vX.Y.Z` num commit já publicado** → `release.yaml` **não rebuilda**: reaproveita a imagem `<git-sha>` já testada, adiciona as tags de versão ao mesmo digest e atualiza `values-prod.yaml`. O Argo faz o deploy em produção.
+3. **Release Please**, depois que o Release em `homolog` termina com sucesso, abre ou atualiza o PR de release. Produção não muda ainda.
+4. **Merge do PR de release** → o push publica a imagem desse commit (ele altera `src/package.json`). Em seguida o Release Please cria a tag `vX.Y.Z`. O `release.yaml` **não rebuilda**: reaproveita a imagem `<git-sha>`, adiciona as tags de versão ao mesmo digest e atualiza `values-prod.yaml`. O Argo faz o deploy em produção.
 
 ---
 
@@ -216,24 +224,41 @@ bash scripts/smoke.sh conversor-temperatura:local
 |---|---|---|
 | `<git-sha>` | Todo push em `homolog`/`main` | **Imutável.** Usada no Helm de homolog e como origem da promoção |
 | `latest`, `homolog` | Push em `homolog` (branch default) | Atalhos móveis, não usar em deploy |
-| `X.Y.Z`, `X.Y` | Tag git `vX.Y.Z` | Produção (mesmo digest do `<git-sha>` do commit) |
+| `X.Y.Z`, `X.Y` | Tag git `vX.Y.Z` criada pelo Release Please | Produção (mesmo digest do `<git-sha>` do commit) |
 
 ---
 
+## `release-please.yaml` — tag de produção
+
+Roda quando o workflow **Release** termina com sucesso na branch `homolog`. O Release disparado pela própria tag não entra nesse gatilho.
+
+Usa `googleapis/release-please-action` com o secret `RELEASE_PLEASE_TOKEN` (PAT fine-grained **deste** repositório, Contents e Pull requests write). O `GITHUB_TOKEN` não serve: pull request aberto por ele não dispara a CI, e a tag criada por ele não dispara o `promote`.
+
+A configuração está em `release-please-config.json` e `.release-please-manifest.json`:
+
+- Pacote Node em `src` (atualiza `src/package.json` e o lock). A versão atual registrada é `1.0.0`.
+- Tag `vX.Y.Z`, sem prefixo do componente.
+- Changelog na raiz, `CHANGELOG.md`.
+- `bootstrap-sha` no commit anterior a esta adoção. O histórico anterior não entra na primeira release.
+
+Versão a partir da mensagem do commit:
+
+| Commit | Incremento |
+|---|---|
+| `fix: ...` | patch (`1.0.1`) |
+| `feat: ...` | minor (`1.1.0`) |
+| `feat!: ...` ou rodapé `BREAKING CHANGE:` | major (`2.0.0`) |
+
+Commit que não segue esse formato não abre release. O commit do release altera `src/package.json` de propósito: o `paths-ignore` do `release.yaml` ignora `**.md`, então um commit só de changelog não publicaria a imagem que a tag precisa. Um commit que não dispara o `release.yaml` (só `.md` ou `.k8s`) entra no PR de release na próxima publicação.
+
 ## Como fazer uma release para produção
 
-1. Faça o merge na `homolog` (branch default) e espere o `release.yaml` terminar (a imagem `<git-sha>` precisa existir).
-2. Confira em homolog que está tudo certo.
-3. Crie e envie a tag **no mesmo commit** da `homolog`:
+1. Mergeie em `homolog` com commit convencional e espere o Release publicar a imagem. Confira o ambiente de homolog.
+2. O Release Please abre ou atualiza o pull request de release (versão e changelog).
+3. Mergeie esse pull request quando homolog estiver validado. O merge publica a imagem do commit de release e, ao terminar, cria a tag `vX.Y.Z` e o GitHub Release.
+4. Se o environment `production` tiver aprovação obrigatória, aprove em **Actions → execução do Release** disparada pela tag.
 
-```bash
-git checkout homolog
-git pull
-git tag v1.2.3
-git push origin v1.2.3
-```
-
-4. Se o environment `production` tiver aprovação obrigatória, aprove em **Actions → execução do Release**.
+Um `git tag vX.Y.Z` seguido de `git push origin vX.Y.Z`, no commit que o push em `homolog` ou `main` já publicou, continua promovendo a mesma imagem. O caminho normal é o pull request do Release Please.
 
 ---
 
@@ -257,6 +282,7 @@ Proteções como required reviewers ou restrição de branches/tags são configu
 | `DOCKERHUB_USERNAME` | `publish`, `promote`, `cleanup-hub` | — |
 | `DOCKERHUB_TOKEN` | `publish`, `promote`, `cleanup-hub` | Access token com **Read, Write, Delete** (o delete é para o cleanup) |
 | `HELM_CHARTS_TOKEN` | `update-helm` | PAT com **Contents: write** em `fcavalcanti-devops/helm-charts` |
+| `RELEASE_PLEASE_TOKEN` | `release-please` | PAT fine-grained **deste** repositório, Contents e Pull requests write. A identidade do token precisa poder abrir PR em `homolog` e criar tag `v*` |
 
 A CI de PR não usa nenhum secret.
 
@@ -282,7 +308,13 @@ A tag foi criada num commit que não gerou imagem. Causas possíveis:
 - o commit não passou por um push em `homolog` ou `main`, ou o release desse push ainda não terminou;
 - a tag sha já foi removida pelo `cleanup-hub` (mais de 10 publicações depois).
 
-Solução: crie a tag no último commit da `homolog` que tenha um release com sucesso.
+Solução: a tag tem que estar num commit que o push em `homolog` ou `main` já publicou. No fluxo normal, isso é o commit do pull request de release.
+
+**Release Please falha pedindo `RELEASE_PLEASE_TOKEN`**
+O secret ainda não existe, ou está vazio. Crie o PAT fine-grained e grave em Settings → Secrets and variables → Actions.
+
+**O pull request de release não aparece**
+Não houve commit `feat`, `fix` ou `BREAKING CHANGE` depois do `bootstrap-sha`. Um `chore` ou um merge sem corpo convencional não abre release.
 
 **`promote` falha com "nao e semver"**
 A tag precisa seguir `vX.Y.Z` (ex.: `v1.2.3`).

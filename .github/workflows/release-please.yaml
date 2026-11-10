@@ -1,0 +1,40 @@
+name: Release Please
+
+on:
+  workflow_run:
+    workflows:
+      - Release
+    types:
+      - completed
+    branches:
+      - homolog
+
+permissions:
+  contents: read
+
+jobs:
+  release-please:
+    name: Release Please
+    # Só depois do publish: a tag dispara o promote, que exige a imagem do sha.
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check token
+        env:
+          RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+        shell: bash
+        run: |
+          if [ -z "$RELEASE_PLEASE_TOKEN" ]; then
+            echo "::error::Crie o secret RELEASE_PLEASE_TOKEN: PAT fine-grained deste repositorio, com Contents e Pull requests write."
+            exit 1
+          fi
+
+      - name: Release Please
+        uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          target-branch: homolog
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
