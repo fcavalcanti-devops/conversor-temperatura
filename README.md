@@ -37,6 +37,7 @@ Checa `/health` (app up), rotas de conversão, a página `/` e que o container n
 | Pull request para `homolog` (branch default) ou `main` | `.github/workflows/ci.yaml` | Gitleaks, lint (ESLint), testes (Node 22 e 24), lint do Dockerfile, build **sem push**, smoke e scan Trivy |
 | Push em `homolog` | `.github/workflows/release.yaml` | Testes, publicação (`latest` + `homolog` + tag **git sha**), smoke e Trivy |
 | Push em `main` | `.github/workflows/release.yaml` | Testes, publicação (só a tag **git sha**), smoke e Trivy |
+| Release Please, depois do Release em `homolog` | `.github/workflows/release-please.yaml` | Abre o PR de release. No merge, cria a tag `vX.Y.Z` |
 | Tag `v1.2.3` | `.github/workflows/release.yaml` | **Sem rebuild:** promove a imagem `<git-sha>` já publicada pelo push da branch, adicionando `1.2.3` e `1.2` ao mesmo digest, e atualiza produção |
 
 Os checks de qualidade rodam em `.github/workflows/test.yaml` (Gitleaks, lint, testes e audit), um workflow reutilizável chamado tanto pela CI quanto pelo release, então nada é publicado sem eles passarem.
@@ -48,21 +49,22 @@ Imagem: `felipecs8/conversor-temperatura` (multi-arch `linux/amd64` e `linux/arm
 **Tags publicadas**
 - **Imutável:** `<git-sha>` (= `github.sha`) — use no Helm/Argo para deploy dinâmico
 - **Atalhos:** `latest` e `homolog` (push na branch default `homolog`)
-- **Release:** `1.2.3`, `1.2` ao criar tag git `v1.2.3` — mesmo digest da imagem `<git-sha>` que rodou em homolog. A tag precisa estar num commit que gerou imagem no push de `homolog` ou `main` (commits só de `.md`/`.k8s` não geram) e cuja tag sha ainda não foi removida pelo cleanup.
+- **Release:** `1.2.3`, `1.2` quando o Release Please cria a tag git `v1.2.3` — mesmo digest da imagem `<git-sha>` que rodou em homolog. A tag fica no commit do PR de release, que altera `src/package.json` e por isso gera imagem. Commit só de `.md`/`.k8s` não gera.
 
-```bash
-# Criar release versionada (na homolog, branch default, já publicada)
-git checkout homolog
-git pull
-git tag v1.0.1
-git push origin v1.0.1
-```
+Produção sai do pull request de release. Os commits que entram na versão seguem:
+
+- `fix: ...` incrementa o patch
+- `feat: ...` incrementa o minor
+- `feat!: ...` ou `BREAKING CHANGE:` incrementa o major
+
+Depois do merge em `homolog`, espere o Release e mergeie o PR que o Release Please abrir. O detalhe está em [.github/workflows/README.md](.github/workflows/README.md).
 
 **Secrets necessários** (Settings → Secrets and variables → Actions):
 
 - `DOCKERHUB_USERNAME`: usuário do Docker Hub
 - `DOCKERHUB_TOKEN`: access token do Docker Hub com **Read/Write/Delete** (push + cleanup de tags)
 - `HELM_CHARTS_TOKEN`: PAT com **Contents: write** em `fcavalcanti-devops/helm-charts`
+- `RELEASE_PLEASE_TOKEN`: PAT fine-grained deste repositório, com **Contents** e **Pull requests** write
 
 Após cada Release, o job **Cleanup Docker Hub** chama a API do Hub e apaga tags **sha** antigas (mantém as 10 mais recentes; `latest`/`homolog`/semver não são sha e ficam).
 
