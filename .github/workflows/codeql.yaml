@@ -1,14 +1,13 @@
 name: 'CodeQL'
 
+# main nao entra: so recebe codigo de homolog, ja analisado.
 on:
   pull_request:
     branches:
       - homolog
-      - main
   push:
     branches:
       - homolog
-      - main
 
 permissions:
   contents: read

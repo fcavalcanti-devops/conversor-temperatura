@@ -2,9 +2,9 @@ name: 'CI'
 
 on:
   pull_request:
+    # main nao entra: o PR homolog -> main traz codigo ja validado aqui.
     branches:
       - homolog
-      - main
 
 permissions:
   contents: read

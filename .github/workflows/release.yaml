@@ -2,9 +2,9 @@ name: 'Release'
 
 on:
   push:
+    # main nao entra: so espelha homolog, e producao promove a imagem do commit de homolog.
     branches:
       - homolog
-      - main
     tags:
       - 'v*'
     paths-ignore:
@@ -56,7 +56,6 @@ jobs:
 
       # Sempre: tag imutavel = git sha (igual github.sha)
       # homolog (branch default) -> latest + homolog + <sha>
-      # main -> <sha>
       # As tags de versao (v1.2.3) sao aplicadas depois, pelo job promote.
       - name: Docker metadata
         id: meta
@@ -146,8 +145,8 @@ jobs:
             echo ''
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # Tag v* nao rebuilda: reaproveita a imagem que o push da branch (homolog
-  # ou main) ja publicou para o mesmo commit, e so adiciona as tags de versao.
+  # Tag v* nao rebuilda: reaproveita a imagem que o push em homolog ja
+  # publicou para o mesmo commit, e so adiciona as tags de versao.
   promote:
     name: 'Promover imagem para producao'
     if: github.ref_type == 'tag'
@@ -193,7 +192,7 @@ jobs:
           fi
 
           if ! docker buildx imagetools inspect "$SRC" >/dev/null 2>&1; then
-            echo "::error::A imagem $SRC nao existe no Docker Hub. Crie a tag num commit que gerou imagem no push de homolog ou main (commits so de .md/.k8s nao geram) e que ainda nao foi removido pelo cleanup."
+            echo "::error::A imagem $SRC nao existe no Docker Hub. Crie a tag num commit que gerou imagem no push de homolog (commits so de .md/.k8s e commits da main nao geram) e que ainda nao foi removido pelo cleanup."
             exit 1
           fi
 
@@ -232,7 +231,7 @@ jobs:
   update-helm:
     name: 'Atualizar Helm'
     needs: [publish, promote]
-    # Push em main publica a imagem, mas nao faz deploy: so homolog escreve em values-homolog.yaml.
+    # So homolog escreve em values-homolog.yaml, mesmo que outra branch volte para o gatilho.
     if: ${{ !cancelled() && ((needs.publish.result == 'success' && github.ref == 'refs/heads/homolog') || needs.promote.result == 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
