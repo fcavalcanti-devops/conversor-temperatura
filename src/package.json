@@ -1,6 +1,6 @@
 {
   "name": "conversao-temperatura",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Conversor de temperatura entre Celsius e Fahrenheit",
   "main": "app.js",
   "engines": {
@@ -33,7 +33,7 @@
     "@eslint/js": "^10.0.1",
     "eslint": "^10.14.0",
     "globals": "^17.14.0",
-    "supertest": "^7.3.1",
-    "vitest": "^5.0.5"
+    "supertest": "^7.3.2",
+    "vitest": "^5.1.0"
   }
 }
