@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.0](https://github.com/fcavalcanti-devops/conversor-temperatura/compare/v1.1.0...v1.2.0) (2026-11-16)
+
+
+### Features
+
+* update workflow steps ([ff76b62](https://github.com/fcavalcanti-devops/conversor-temperatura/commit/ff76b62bf332ba329548b2a4baf2982c2778a5f1))
+* update workflow steps ([ff76b62](https://github.com/fcavalcanti-devops/conversor-temperatura/commit/ff76b62bf332ba329548b2a4baf2982c2778a5f1))
+
 ## [1.1.0](https://github.com/fcavalcanti-devops/conversor-temperatura/compare/v1.0.0...v1.1.0) (2026-11-10)
 
 
