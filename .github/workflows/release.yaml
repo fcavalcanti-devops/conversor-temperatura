@@ -54,12 +54,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
       # Sempre: tag imutavel = git sha (igual github.sha)
       # homolog (branch default) -> latest + homolog + <sha>
       # main -> <sha>
@@ -112,6 +106,14 @@ jobs:
           ignore-unfixed: true
           exit-code: '1'
           skip-setup-trivy: true
+
+      # So aqui: a credencial fica em ~/.docker/config.json e seria legivel pelos
+      # steps de terceiros acima (Trivy), que nao precisam dela.
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push (multi-arch)
         id: build

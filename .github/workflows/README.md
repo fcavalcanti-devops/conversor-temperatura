@@ -149,8 +149,9 @@ O princípio é: **nada vai para o Docker Hub antes de passar no smoke e no Triv
 2. **Build da candidata (amd64)** — build local, sem push: `conversor-temperatura:candidate-<sha>`.
 3. **Smoke test** na candidata.
 4. **Trivy** — relatório de `CRITICAL`/`HIGH` e gate que falha em `CRITICAL` com correção.
-5. **Build and push (multi-arch)** — só depois de tudo acima passar: build `linux/amd64` + `linux/arm64`, com **SBOM** e **provenance**, publicando as tags calculadas. O cache da candidata é reaproveitado, então o amd64 não é recompilado do zero.
-6. **Job summary** — mostra digest, tag imutável e todas as tags publicadas.
+5. **Login no Docker Hub** — só neste ponto. O `docker/login-action` grava a credencial em `~/.docker/config.json`, legível por qualquer step seguinte do job. Fazer o login depois do Trivy tira a credencial do alcance de actions de terceiros que não precisam dela.
+6. **Build and push (multi-arch)** — só depois de tudo acima passar: build `linux/amd64` + `linux/arm64`, com **SBOM** e **provenance**, publicando as tags calculadas. O cache da candidata é reaproveitado, então o amd64 não é recompilado do zero.
+7. **Job summary** — mostra digest, tag imutável e todas as tags publicadas.
 
 ### Job `promote` — promoção para produção
 
