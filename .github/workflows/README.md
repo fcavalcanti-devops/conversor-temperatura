@@ -99,7 +99,6 @@ Job **Build da imagem** (só roda se `test` passar):
 Como não há push nem uso de secrets, a CI funciona também em PRs vindos de fork.
 
 ---
-
 ## `codeql.yaml` — análise estática
 
 **Gatilhos:** pull request para `homolog`/`main` e push nessas duas branches. O push em `homolog` cobre a branch default.
@@ -252,6 +251,16 @@ Versão a partir da mensagem do commit:
 
 Commit que não segue esse formato não abre release. O commit do release altera `src/package.json` de propósito: o `paths-ignore` do `release.yaml` ignora `**.md`, então um commit só de changelog não publicaria a imagem que a tag precisa. Um commit que não dispara o `release.yaml` (só `.md` ou `.k8s`) entra no PR de release na próxima publicação.
 
+### Merge em `homolog`
+
+PRs para `homolog` devem entrar por **squash merge**, com o título do PR como mensagem. O título precisa seguir o formato da tabela acima (`feat: ...`, `fix: ...`). Um merge commit leva o título do PR no corpo, e o Release Please lê também os commits da branch, então a mesma mudança aparece duas vezes no changelog.
+
+Configuração no GitHub (não fica em arquivo):
+
+1. **Settings → General → Pull Requests**: habilite **Allow squash merging** com **Default to pull request title**. Deixe **Allow merge commits** habilitado, porque o PR `homolog` → `main` precisa dele.
+2. **Settings → Rules → Rulesets**, no ruleset de `homolog`: em **Require a pull request before merging → Allowed merge methods**, deixe só **Squash**.
+3. No ruleset de `main`, deixe só **Merge**. Squash em `homolog` → `main` reescreve o histórico e faz o próximo PR entre as duas branches repetir commits ou dar conflito.
+
 ## Como fazer uma release para produção
 
 1. Mergeie em `homolog` com commit convencional e espere o Release publicar a imagem. Confira o ambiente de homolog.
@@ -272,7 +281,7 @@ Um `git tag vX.Y.Z` seguido de `git push origin vX.Y.Z`, no commit que o push em
 | `homolog` | `publish`, `update-helm` (push em `homolog`) |
 | `production` | `promote`, `update-helm` (tag) |
 
-Proteções como required reviewers ou restrição de branches/tags são configuradas no próprio environment.
+Proteções como required reviewers ou restrição de branches/tags são configuradas no próprio environment. O GitHub pede aprovação **por job**: com required reviewers em `production`, cada release pede duas aprovações (`promote` e `update-helm`).
 
 **Permissões:** todos os workflows usam `contents: read` por padrão. Só o `codeql.yaml` recebe `security-events: write`, para enviar os resultados ao Code scanning. A escrita no repo `helm-charts` usa um token próprio, não o `GITHUB_TOKEN`.
 
@@ -299,6 +308,15 @@ Configurado em `.github/dependabot.yml`, roda semanalmente:
 
 Os PRs do Dependabot abrem contra `homolog` (`target-branch`) e passam pela mesma `ci.yaml` e `codeql.yaml` de qualquer PR.
 
+O prefixo das mensagens (`commit-message`) segue o que o Release Please espera:
+
+| Ecossistema | Mensagem | Efeito na versão |
+|---|---|---|
+| npm, dependência de runtime | `fix(deps): ...` | patch |
+| npm, devDependency | `chore(deps-dev): ...` | nenhum (não entra na imagem) |
+| Imagem base Docker | `fix(deps): ...` | patch |
+| GitHub Actions | `ci(deps): ...` | nenhum |
+
 ---
 
 ## Problemas comuns
@@ -316,6 +334,9 @@ O secret ainda não existe, ou está vazio. Crie o PAT fine-grained e grave em S
 
 **O pull request de release não aparece**
 Não houve commit `feat`, `fix` ou `BREAKING CHANGE` depois do `bootstrap-sha`. Um `chore` ou um merge sem corpo convencional não abre release.
+
+**A mesma mudança aparece duas vezes no changelog**
+O PR entrou em `homolog` por merge commit, não por squash. Ver [Merge em `homolog`](#merge-em-homolog).
 
 **`promote` falha com "nao e semver"**
 A tag precisa seguir `vX.Y.Z` (ex.: `v1.2.3`).

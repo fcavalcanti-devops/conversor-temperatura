@@ -10,6 +10,12 @@ updates:
       time: '09:00'
       timezone: America/Sao_Paulo
     open-pull-requests-limit: 5
+    # O Release Please le o prefixo: dependencia de runtime vira patch (fix(deps)),
+    # devDependency nao entra na imagem e nao abre release (chore(deps-dev)).
+    commit-message:
+      prefix: fix
+      prefix-development: chore
+      include: scope
     # Major continua sendo proposta: o cooldown so segura a release recem-saida,
     # em vez de criar ponto cego na atualizacao de dependencia.
     cooldown:
@@ -26,6 +32,9 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    commit-message:
+      prefix: ci
+      include: scope
     groups:
       github-actions:
         patterns:
@@ -37,6 +46,10 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # Imagem base nova muda a imagem publicada: precisa gerar release.
+    commit-message:
+      prefix: fix
+      include: scope
     # Aqui o bloqueio de major faz sentido: o que se quer e a LTS, nao a versao
     # mais nova, e o Dependabot nao sabe expressar isso (ex.: node:25, ja EOL).
     ignore:
