@@ -35,8 +35,8 @@ Checa `/health` (app up), rotas de conversão, a página `/` e que o container n
 | Gatilho | Workflow | O que acontece |
 |---|---|---|
 | Pull request para `homolog` (branch default) ou `main` | `.github/workflows/ci.yaml` | Gitleaks, lint (ESLint), testes (Node 22 e 24), lint do Dockerfile, build **sem push**, smoke e scan Trivy |
-| Push em `homolog` | `.github/workflows/release.yaml` | Testes, publicação (`latest` + `homolog` + tag **git sha**), smoke e Trivy |
-| Push em `main` | `.github/workflows/release.yaml` | Testes, publicação (só a tag **git sha**), smoke e Trivy |
+| Push em `homolog` | `.github/workflows/release.yaml` | Testes, publicação (`latest` + `homolog` + tag **git sha**), smoke e Trivy. Atualiza homolog |
+| Push em `main` | `.github/workflows/release.yaml` | Testes, publicação (só a tag **git sha**), smoke e Trivy. Sem deploy |
 | Release Please, depois do Release em `homolog` | `.github/workflows/release-please.yaml` | Abre o PR de release. No merge, cria a tag `vX.Y.Z` |
 | Tag `v1.2.3` | `.github/workflows/release.yaml` | **Sem rebuild:** promove a imagem `<git-sha>` já publicada pelo push da branch, adicionando `1.2.3` e `1.2` ao mesmo digest, e atualiza produção |
 

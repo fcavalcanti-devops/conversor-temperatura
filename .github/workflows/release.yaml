@@ -230,10 +230,11 @@ jobs:
   update-helm:
     name: 'Atualizar Helm'
     needs: [publish, promote]
-    if: ${{ !cancelled() && (needs.publish.result == 'success' || needs.promote.result == 'success') }}
+    # Push em main publica a imagem, mas nao faz deploy: so homolog escreve em values-homolog.yaml.
+    if: ${{ !cancelled() && ((needs.publish.result == 'success' && github.ref == 'refs/heads/homolog') || needs.promote.result == 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # Deploy real → barra na UI; tag v* = production, branch = homolog
+    # Deploy real → barra na UI; tag v* = production, homolog = homolog
     environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'production' || 'homolog' }}
     concurrency:
       group: update-helm-conversor-temperatura

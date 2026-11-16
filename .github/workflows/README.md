@@ -36,7 +36,7 @@ flowchart TD
     PUSH -.->|push em homolog e main| CQ
     REL --> T2[test.yaml]
     T2 --> PUB[publish: candidata, smoke, Trivy, push multi-arch]
-    PUB --> HH[update-helm: values-homolog.yaml]
+    PUB -->|só push em homolog| HH[update-helm: values-homolog.yaml]
     PUB --> CL[cleanup-hub]
     PUB --> RP[release-please.yaml]
     RP --> RPR[PR de release]
@@ -55,7 +55,8 @@ flowchart TD
 Resumo do ciclo de vida de uma mudança:
 
 1. **PR** → `ci.yaml` e `codeql.yaml` validam a mudança. Nada é publicado.
-2. **Merge em `homolog` (branch default) ou `main`** → `release.yaml` testa de novo, publica a imagem com a tag `<git-sha>` e atualiza `values-homolog.yaml` no repo `helm-charts`. O Argo faz o deploy em homolog. O push em `homolog` também move as tags `latest` e `homolog`.
+2. **Merge em `homolog` (branch default)** → `release.yaml` testa de novo, publica a imagem com a tag `<git-sha>` e atualiza `values-homolog.yaml` no repo `helm-charts`. O Argo faz o deploy em homolog. O push em `homolog` também move as tags `latest` e `homolog`.
+   **Merge em `main`** → mesmos testes e publicação (só a tag `<git-sha>`), sem deploy: nenhum values é alterado.
 3. **Release Please**, depois que o Release em `homolog` termina com sucesso, abre ou atualiza o PR de release. Produção não muda ainda.
 4. **Merge do PR de release** → o push publica a imagem desse commit (ele altera `src/package.json`). Em seguida o Release Please cria a tag `vX.Y.Z`. O `release.yaml` **não rebuilda**: reaproveita a imagem `<git-sha>`, adiciona as tags de versão ao mesmo digest e atualiza `values-prod.yaml`. O Argo faz o deploy em produção.
 
@@ -132,10 +133,10 @@ Variável global: `IMAGE_NAME=felipecs8/conversor-temperatura`.
 | `test` | ✅ | ✅ | — |
 | `publish` | ✅ (tags `<sha>` + `latest` + `homolog`) | ✅ (só `<sha>`) | — |
 | `promote` | — | — | ✅ |
-| `update-helm` | ✅ → `values-homolog.yaml` | ✅ → `values-homolog.yaml` | ✅ → `values-prod.yaml` |
+| `update-helm` | ✅ → `values-homolog.yaml` | — | ✅ → `values-prod.yaml` |
 | `cleanup-hub` | ✅ | ✅ | — |
 
-> Push em `homolog` ou `main` atualiza o ambiente de **homolog**. Produção só muda via tag `v*`. A tag `latest` só anda no push de `homolog`.
+> Push em `homolog` atualiza o ambiente de **homolog**. Produção só muda via tag `v*`. Push em `main` publica a imagem e não faz deploy. A tag `latest` só anda no push de `homolog`.
 
 ### Job `publish` — build e push da imagem
 
@@ -169,17 +170,17 @@ Resultado: o que vai para produção é **byte a byte** a mesma imagem que rodou
 
 ### Job `update-helm` — deploy via GitOps
 
-Roda depois de `publish` **ou** `promote` (o que tiver rodado com sucesso). Environment: `production` para tag, `homolog` para branch.
+Roda depois de `publish` **ou** `promote` (o que tiver rodado com sucesso). Não roda no push em `main`. Environment: `production` para tag, `homolog` para a branch `homolog`.
 
 1. Faz checkout do repo [`fcavalcanti-devops/helm-charts`](https://github.com/fcavalcanti-devops/helm-charts) com o `HELM_CHARTS_TOKEN`.
 2. Define ambiente e tag:
-   - branch → `values-homolog.yaml` com tag `<git-sha>`;
+   - `homolog` → `values-homolog.yaml` com tag `<git-sha>`;
    - tag `v1.2.3` → `values-prod.yaml` com tag `1.2.3`.
 3. Atualiza `.application.image.tag` com `yq` em `charts/conversor-temperatura/values-<env>.yaml`.
 4. Commita como `github-actions[bot]` (`chore(<env>): update conversor-temperatura to <tag>`). Se a tag já for a mesma, não há commit e o job termina com sucesso.
 5. Faz `git push` com até 3 tentativas, rodando `git pull --rebase` entre elas.
 
-O job tem um grupo de concorrência **global** (`update-helm-conversor-temperatura`): pushes simultâneos em `main`, `homolog` e tags entram em fila, em vez de competir pelo mesmo repositório.
+O job tem um grupo de concorrência **global** (`update-helm-conversor-temperatura`): pushes simultâneos em `homolog` e tags entram em fila, em vez de competir pelo mesmo repositório.
 
 A partir daí, o Argo CD (Applications no repo `gitops`) detecta a mudança e sincroniza o cluster.
 
@@ -268,7 +269,7 @@ Um `git tag vX.Y.Z` seguido de `git push origin vX.Y.Z`, no commit que o push em
 
 | Environment | Jobs |
 |---|---|
-| `homolog` | `publish`, `update-helm` (push de branch) |
+| `homolog` | `publish`, `update-helm` (push em `homolog`) |
 | `production` | `promote`, `update-helm` (tag) |
 
 Proteções como required reviewers ou restrição de branches/tags são configuradas no próprio environment.
