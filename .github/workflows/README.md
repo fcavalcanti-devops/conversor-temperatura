@@ -9,9 +9,9 @@ Este documento descreve a esteira de CI/CD do **Conversor de Temperatura**: quai
 | Arquivo | Gatilho | Papel |
 |---|---|---|
 | `test.yaml` | `workflow_call` (reutilizável) | Checks de qualidade: Gitleaks, lint, testes e audit |
-| `ci.yaml` | Pull request para `homolog` (branch default) ou `main` | Valida o PR: testes + build da imagem **sem push**, smoke e Trivy |
-| `codeql.yaml` | Pull request para `homolog`/`main` e push nessas branches | Análise estática (SAST) do código JS e dos próprios workflows |
-| `release.yaml` | Push em `homolog`/`main` e tag `v*` | Publica a imagem, promove para produção e atualiza o Helm (GitOps) |
+| `ci.yaml` | Pull request para `homolog` (branch default) | Valida o PR: testes + build da imagem **sem push**, smoke e Trivy |
+| `codeql.yaml` | Pull request e push em `homolog` | Análise estática (SAST) do código JS e dos próprios workflows |
+| `release.yaml` | Push em `homolog` e tag `v*` | Publica a imagem, promove para produção e atualiza o Helm (GitOps) |
 | `release-please.yaml` | `workflow_run` depois de um Release em `homolog` com sucesso | Abre o PR de release e, no merge, cria a tag `v*` |
 
 Arquivos relacionados fora desta pasta:
@@ -27,16 +27,16 @@ Arquivos relacionados fora desta pasta:
 
 ```mermaid
 flowchart TD
-    PR[Pull request para homolog/main] --> CI[ci.yaml]
+    PR[Pull request para homolog] --> CI[ci.yaml]
     PR --> CQ[codeql.yaml]
     CI --> T1[test.yaml]
     T1 --> B[build: hadolint, build local, smoke, Trivy]
 
-    PUSH[Push em homolog/main] --> REL[release.yaml]
-    PUSH -.->|push em homolog e main| CQ
+    PUSH[Push em homolog] --> REL[release.yaml]
+    PUSH -.-> CQ
     REL --> T2[test.yaml]
     T2 --> PUB[publish: candidata, smoke, Trivy, push multi-arch]
-    PUB -->|só push em homolog| HH[update-helm: values-homolog.yaml]
+    PUB --> HH[update-helm: values-homolog.yaml]
     PUB --> CL[cleanup-hub]
     PUB --> RP[release-please.yaml]
     RP --> RPR[PR de release]
@@ -56,7 +56,7 @@ Resumo do ciclo de vida de uma mudança:
 
 1. **PR** → `ci.yaml` e `codeql.yaml` validam a mudança. Nada é publicado.
 2. **Merge em `homolog` (branch default)** → `release.yaml` testa de novo, publica a imagem com a tag `<git-sha>` e atualiza `values-homolog.yaml` no repo `helm-charts`. O Argo faz o deploy em homolog. O push em `homolog` também move as tags `latest` e `homolog`.
-   **Merge em `main`** → mesmos testes e publicação (só a tag `<git-sha>`), sem deploy: nenhum values é alterado.
+   **PR e merge em `main`** → nenhum workflow roda: nada é testado de novo, publicado nem implantado. A `main` só espelha `homolog`; produção promove a imagem do commit de `homolog`.
 3. **Release Please**, depois que o Release em `homolog` termina com sucesso, abre ou atualiza o PR de release. Produção não muda ainda.
 4. **Merge do PR de release** → o push publica a imagem desse commit (ele altera `src/package.json`). Em seguida o Release Please cria a tag `vX.Y.Z`. O `release.yaml` **não rebuilda**: reaproveita a imagem `<git-sha>`, adiciona as tags de versão ao mesmo digest e atualiza `values-prod.yaml`. O Argo faz o deploy em produção.
 
@@ -81,7 +81,7 @@ A matriz usa `fail-fast: false`: uma versão do Node falhando não cancela a out
 
 ## `ci.yaml` — validação de pull request
 
-**Gatilho:** pull request com destino `homolog` (branch default) ou `main`.
+**Gatilho:** pull request com destino `homolog` (branch default). O PR `homolog` → `main` não roda a CI: o código já passou por ela.
 **Concorrência:** um novo push no mesmo PR cancela a execução anterior (`cancel-in-progress: true`).
 
 ```
@@ -101,7 +101,7 @@ Como não há push nem uso de secrets, a CI funciona também em PRs vindos de fo
 ---
 ## `codeql.yaml` — análise estática
 
-**Gatilhos:** pull request para `homolog`/`main` e push nessas duas branches. O push em `homolog` cobre a branch default.
+**Gatilhos:** pull request para `homolog` e push em `homolog`. O push cobre a branch default, que é onde o Code scanning mostra os alertas. A `main` fica de fora: só recebe código de `homolog`, já analisado.
 
 Roda o CodeQL em matriz com duas linguagens:
 
@@ -118,7 +118,7 @@ Os resultados aparecem em **Security → Code scanning**.
 
 **Gatilhos:**
 
-- Push em `homolog` ou `main`, **exceto** quando o commit altera apenas `**.md` ou `.k8s/**`.
+- Push em `homolog`, **exceto** quando o commit altera apenas `**.md` ou `.k8s/**`. Push em `main` não dispara o release.
 - Push de tag `v*` (o filtro `paths-ignore` não se aplica a tags).
 
 **Concorrência:** uma execução por ref, **sem cancelar** a que está em andamento — uma publicação nunca é interrompida no meio.
@@ -127,15 +127,15 @@ Variável global: `IMAGE_NAME=felipecs8/conversor-temperatura`.
 
 ### Quais jobs rodam em cada gatilho
 
-| Job | Push em `homolog` | Push em `main` | Tag `vX.Y.Z` |
-|---|---|---|---|
-| `test` | ✅ | ✅ | — |
-| `publish` | ✅ (tags `<sha>` + `latest` + `homolog`) | ✅ (só `<sha>`) | — |
-| `promote` | — | — | ✅ |
-| `update-helm` | ✅ → `values-homolog.yaml` | — | ✅ → `values-prod.yaml` |
-| `cleanup-hub` | ✅ | ✅ | — |
+| Job | Push em `homolog` | Tag `vX.Y.Z` |
+|---|---|---|
+| `test` | ✅ | — |
+| `publish` | ✅ (tags `<sha>` + `latest` + `homolog`) | — |
+| `promote` | — | ✅ |
+| `update-helm` | ✅ → `values-homolog.yaml` | ✅ → `values-prod.yaml` |
+| `cleanup-hub` | ✅ | — |
 
-> Push em `homolog` atualiza o ambiente de **homolog**. Produção só muda via tag `v*`. Push em `main` publica a imagem e não faz deploy. A tag `latest` só anda no push de `homolog`.
+> Push em `homolog` atualiza o ambiente de **homolog**. Produção só muda via tag `v*`. Push em `main` não roda nenhum job deste workflow.
 
 ### Job `publish` — build e push da imagem
 
@@ -157,7 +157,7 @@ O princípio é: **nada vai para o Docker Hub antes de passar no smoke e no Triv
 
 Roda só em push de tag. Environment: `production`.
 
-Não faz build. Reaproveita a imagem `felipecs8/conversor-temperatura:<git-sha>` que o push em `homolog` ou `main` já testou e publicou para o **mesmo commit** da tag:
+Não faz build. Reaproveita a imagem `felipecs8/conversor-temperatura:<git-sha>` que o push em `homolog` já testou e publicou para o **mesmo commit** da tag:
 
 1. Calcula as tags semver a partir da tag git: `v1.2.3` → `1.2.3` e `1.2`.
 2. Falha se a tag não for semver (`vX.Y.Z`).
@@ -170,7 +170,7 @@ Resultado: o que vai para produção é **byte a byte** a mesma imagem que rodou
 
 ### Job `update-helm` — deploy via GitOps
 
-Roda depois de `publish` **ou** `promote` (o que tiver rodado com sucesso). Não roda no push em `main`. Environment: `production` para tag, `homolog` para a branch `homolog`.
+Roda depois de `publish` **ou** `promote` (o que tiver rodado com sucesso). A condição também exige `homolog` no caminho do `publish`, como proteção caso outra branch volte ao gatilho. Environment: `production` para tag, `homolog` para a branch `homolog`.
 
 1. Faz checkout do repo [`fcavalcanti-devops/helm-charts`](https://github.com/fcavalcanti-devops/helm-charts) com o `HELM_CHARTS_TOKEN`.
 2. Define ambiente e tag:
@@ -186,7 +186,7 @@ A partir daí, o Argo CD (Applications no repo `gitops`) detecta a mudança e si
 
 ### Job `cleanup-hub` — limpeza do Docker Hub
 
-Roda depois do `publish` (só em push de branch), com `continue-on-error: true`: falhar aqui não marca o release como falho.
+Roda depois do `publish` (só em push em `homolog`), com `continue-on-error: true`: falhar aqui não marca o release como falho.
 
 Executa `scripts/cleanup-dockerhub.sh`, que:
 
@@ -223,7 +223,7 @@ bash scripts/smoke.sh conversor-temperatura:local
 
 | Tag | Quando é criada | Uso |
 |---|---|---|
-| `<git-sha>` | Todo push em `homolog`/`main` | **Imutável.** Usada no Helm de homolog e como origem da promoção |
+| `<git-sha>` | Todo push em `homolog` | **Imutável.** Usada no Helm de homolog e como origem da promoção |
 | `latest`, `homolog` | Push em `homolog` (branch default) | Atalhos móveis, não usar em deploy |
 | `X.Y.Z`, `X.Y` | Tag git `vX.Y.Z` criada pelo Release Please | Produção (mesmo digest do `<git-sha>` do commit) |
 
@@ -260,7 +260,7 @@ Configuração no GitHub (não fica em arquivo):
 
 1. **Settings → General → Pull Requests**: habilite **Allow squash merging** com **Default to pull request title**. Deixe **Allow merge commits** habilitado, porque o PR `homolog` → `main` precisa dele.
 2. **Settings → Rules → Rulesets**, no ruleset de `homolog`: em **Require a pull request before merging → Allowed merge methods**, deixe só **Squash**.
-3. No ruleset de `main`, deixe só **Merge**. Squash em `homolog` → `main` reescreve o histórico e faz o próximo PR entre as duas branches repetir commits ou dar conflito.
+3. No ruleset de `main`, deixe só **Merge**. Squash em `homolog` → `main` reescreve o histórico e faz o próximo PR entre as duas branches repetir commits ou dar conflito. Não exija status checks na `main`: nenhum workflow roda em PR para ela, e um check obrigatório que nunca roda trava o merge.
 
 ## Como fazer uma release para produção
 
@@ -269,7 +269,7 @@ Configuração no GitHub (não fica em arquivo):
 3. Mergeie esse pull request quando homolog estiver validado. O merge publica a imagem do commit de release e, ao terminar, cria a tag `vX.Y.Z` e o GitHub Release.
 4. Se o environment `production` tiver aprovação obrigatória, aprove em **Actions → execução do Release** disparada pela tag.
 
-Um `git tag vX.Y.Z` seguido de `git push origin vX.Y.Z`, no commit que o push em `homolog` ou `main` já publicou, continua promovendo a mesma imagem. O caminho normal é o pull request do Release Please.
+Um `git tag vX.Y.Z` seguido de `git push origin vX.Y.Z`, no commit que o push em `homolog` já publicou, continua promovendo a mesma imagem. Tag num commit da `main` falha: a `main` não publica imagem. O caminho normal é o pull request do Release Please.
 
 ---
 
@@ -325,10 +325,10 @@ O prefixo das mensagens (`commit-message`) segue o que o Release Please espera:
 **`promote` falha com "A imagem ... nao existe no Docker Hub"**
 A tag foi criada num commit que não gerou imagem. Causas possíveis:
 - o commit só alterou `.md` ou `.k8s/` (o `paths-ignore` não dispara o release);
-- o commit não passou por um push em `homolog` ou `main`, ou o release desse push ainda não terminou;
+- o commit não passou por um push em `homolog` (commits da `main`, como os merge commits de `homolog` → `main`, não geram imagem), ou o release desse push ainda não terminou;
 - a tag sha já foi removida pelo `cleanup-hub` (mais de 10 publicações depois).
 
-Solução: a tag tem que estar num commit que o push em `homolog` ou `main` já publicou. No fluxo normal, isso é o commit do pull request de release.
+Solução: a tag tem que estar num commit que o push em `homolog` já publicou. No fluxo normal, isso é o commit do pull request de release.
 
 **Release Please falha pedindo `RELEASE_PLEASE_TOKEN`**
 O secret ainda não existe, ou está vazio. Crie o PAT fine-grained e grave em Settings → Secrets and variables → Actions.
