@@ -36,7 +36,7 @@ flowchart TD
     PUSH -.->|push em homolog e main| CQ
     REL --> T2[test.yaml]
     T2 --> PUB[publish: candidata, smoke, Trivy, push multi-arch]
-    PUB --> HH[update-helm: values-homolog.yaml]
+    PUB -->|só push em homolog| HH[update-helm: values-homolog.yaml]
     PUB --> CL[cleanup-hub]
     PUB --> RP[release-please.yaml]
     RP --> RPR[PR de release]
@@ -55,7 +55,8 @@ flowchart TD
 Resumo do ciclo de vida de uma mudança:
 
 1. **PR** → `ci.yaml` e `codeql.yaml` validam a mudança. Nada é publicado.
-2. **Merge em `homolog` (branch default) ou `main`** → `release.yaml` testa de novo, publica a imagem com a tag `<git-sha>` e atualiza `values-homolog.yaml` no repo `helm-charts`. O Argo faz o deploy em homolog. O push em `homolog` também move as tags `latest` e `homolog`.
+2. **Merge em `homolog` (branch default)** → `release.yaml` testa de novo, publica a imagem com a tag `<git-sha>` e atualiza `values-homolog.yaml` no repo `helm-charts`. O Argo faz o deploy em homolog. O push em `homolog` também move as tags `latest` e `homolog`.
+   **Merge em `main`** → mesmos testes e publicação (só a tag `<git-sha>`), sem deploy: nenhum values é alterado.
 3. **Release Please**, depois que o Release em `homolog` termina com sucesso, abre ou atualiza o PR de release. Produção não muda ainda.
 4. **Merge do PR de release** → o push publica a imagem desse commit (ele altera `src/package.json`). Em seguida o Release Please cria a tag `vX.Y.Z`. O `release.yaml` **não rebuilda**: reaproveita a imagem `<git-sha>`, adiciona as tags de versão ao mesmo digest e atualiza `values-prod.yaml`. O Argo faz o deploy em produção.
 
@@ -98,7 +99,6 @@ Job **Build da imagem** (só roda se `test` passar):
 Como não há push nem uso de secrets, a CI funciona também em PRs vindos de fork.
 
 ---
-
 ## `codeql.yaml` — análise estática
 
 **Gatilhos:** pull request para `homolog`/`main` e push nessas duas branches. O push em `homolog` cobre a branch default.
@@ -132,10 +132,10 @@ Variável global: `IMAGE_NAME=felipecs8/conversor-temperatura`.
 | `test` | ✅ | ✅ | — |
 | `publish` | ✅ (tags `<sha>` + `latest` + `homolog`) | ✅ (só `<sha>`) | — |
 | `promote` | — | — | ✅ |
-| `update-helm` | ✅ → `values-homolog.yaml` | ✅ → `values-homolog.yaml` | ✅ → `values-prod.yaml` |
+| `update-helm` | ✅ → `values-homolog.yaml` | — | ✅ → `values-prod.yaml` |
 | `cleanup-hub` | ✅ | ✅ | — |
 
-> Push em `homolog` ou `main` atualiza o ambiente de **homolog**. Produção só muda via tag `v*`. A tag `latest` só anda no push de `homolog`.
+> Push em `homolog` atualiza o ambiente de **homolog**. Produção só muda via tag `v*`. Push em `main` publica a imagem e não faz deploy. A tag `latest` só anda no push de `homolog`.
 
 ### Job `publish` — build e push da imagem
 
@@ -149,8 +149,9 @@ O princípio é: **nada vai para o Docker Hub antes de passar no smoke e no Triv
 2. **Build da candidata (amd64)** — build local, sem push: `conversor-temperatura:candidate-<sha>`.
 3. **Smoke test** na candidata.
 4. **Trivy** — relatório de `CRITICAL`/`HIGH` e gate que falha em `CRITICAL` com correção.
-5. **Build and push (multi-arch)** — só depois de tudo acima passar: build `linux/amd64` + `linux/arm64`, com **SBOM** e **provenance**, publicando as tags calculadas. O cache da candidata é reaproveitado, então o amd64 não é recompilado do zero.
-6. **Job summary** — mostra digest, tag imutável e todas as tags publicadas.
+5. **Login no Docker Hub** — só neste ponto. O `docker/login-action` grava a credencial em `~/.docker/config.json`, legível por qualquer step seguinte do job. Fazer o login depois do Trivy tira a credencial do alcance de actions de terceiros que não precisam dela.
+6. **Build and push (multi-arch)** — só depois de tudo acima passar: build `linux/amd64` + `linux/arm64`, com **SBOM** e **provenance**, publicando as tags calculadas. O cache da candidata é reaproveitado, então o amd64 não é recompilado do zero.
+7. **Job summary** — mostra digest, tag imutável e todas as tags publicadas.
 
 ### Job `promote` — promoção para produção
 
@@ -169,17 +170,17 @@ Resultado: o que vai para produção é **byte a byte** a mesma imagem que rodou
 
 ### Job `update-helm` — deploy via GitOps
 
-Roda depois de `publish` **ou** `promote` (o que tiver rodado com sucesso). Environment: `production` para tag, `homolog` para branch.
+Roda depois de `publish` **ou** `promote` (o que tiver rodado com sucesso). Não roda no push em `main`. Environment: `production` para tag, `homolog` para a branch `homolog`.
 
 1. Faz checkout do repo [`fcavalcanti-devops/helm-charts`](https://github.com/fcavalcanti-devops/helm-charts) com o `HELM_CHARTS_TOKEN`.
 2. Define ambiente e tag:
-   - branch → `values-homolog.yaml` com tag `<git-sha>`;
+   - `homolog` → `values-homolog.yaml` com tag `<git-sha>`;
    - tag `v1.2.3` → `values-prod.yaml` com tag `1.2.3`.
 3. Atualiza `.application.image.tag` com `yq` em `charts/conversor-temperatura/values-<env>.yaml`.
 4. Commita como `github-actions[bot]` (`chore(<env>): update conversor-temperatura to <tag>`). Se a tag já for a mesma, não há commit e o job termina com sucesso.
 5. Faz `git push` com até 3 tentativas, rodando `git pull --rebase` entre elas.
 
-O job tem um grupo de concorrência **global** (`update-helm-conversor-temperatura`): pushes simultâneos em `main`, `homolog` e tags entram em fila, em vez de competir pelo mesmo repositório.
+O job tem um grupo de concorrência **global** (`update-helm-conversor-temperatura`): pushes simultâneos em `homolog` e tags entram em fila, em vez de competir pelo mesmo repositório.
 
 A partir daí, o Argo CD (Applications no repo `gitops`) detecta a mudança e sincroniza o cluster.
 
@@ -238,7 +239,7 @@ A configuração está em `release-please-config.json` e `.release-please-manife
 
 - Pacote Node em `src` (atualiza `src/package.json` e o lock). A versão atual registrada é `1.0.0`.
 - Tag `vX.Y.Z`, sem prefixo do componente.
-- Changelog na raiz, `CHANGELOG.md`.
+- Changelog em `src/CHANGELOG.md`. O caminho é relativo ao pacote. `../` é recusado pelo Release Please.
 - `bootstrap-sha` no commit anterior a esta adoção. O histórico anterior não entra na primeira release.
 
 Versão a partir da mensagem do commit:
@@ -250,6 +251,16 @@ Versão a partir da mensagem do commit:
 | `feat!: ...` ou rodapé `BREAKING CHANGE:` | major (`2.0.0`) |
 
 Commit que não segue esse formato não abre release. O commit do release altera `src/package.json` de propósito: o `paths-ignore` do `release.yaml` ignora `**.md`, então um commit só de changelog não publicaria a imagem que a tag precisa. Um commit que não dispara o `release.yaml` (só `.md` ou `.k8s`) entra no PR de release na próxima publicação.
+
+### Merge em `homolog`
+
+PRs para `homolog` devem entrar por **squash merge**, com o título do PR como mensagem. O título precisa seguir o formato da tabela acima (`feat: ...`, `fix: ...`). Um merge commit leva o título do PR no corpo, e o Release Please lê também os commits da branch, então a mesma mudança aparece duas vezes no changelog.
+
+Configuração no GitHub (não fica em arquivo):
+
+1. **Settings → General → Pull Requests**: habilite **Allow squash merging** com **Default to pull request title**. Deixe **Allow merge commits** habilitado, porque o PR `homolog` → `main` precisa dele.
+2. **Settings → Rules → Rulesets**, no ruleset de `homolog`: em **Require a pull request before merging → Allowed merge methods**, deixe só **Squash**.
+3. No ruleset de `main`, deixe só **Merge**. Squash em `homolog` → `main` reescreve o histórico e faz o próximo PR entre as duas branches repetir commits ou dar conflito.
 
 ## Como fazer uma release para produção
 
@@ -268,10 +279,10 @@ Um `git tag vX.Y.Z` seguido de `git push origin vX.Y.Z`, no commit que o push em
 
 | Environment | Jobs |
 |---|---|
-| `homolog` | `publish`, `update-helm` (push de branch) |
+| `homolog` | `publish`, `update-helm` (push em `homolog`) |
 | `production` | `promote`, `update-helm` (tag) |
 
-Proteções como required reviewers ou restrição de branches/tags são configuradas no próprio environment.
+Proteções como required reviewers ou restrição de branches/tags são configuradas no próprio environment. O GitHub pede aprovação **por job**: com required reviewers em `production`, cada release pede duas aprovações (`promote` e `update-helm`).
 
 **Permissões:** todos os workflows usam `contents: read` por padrão. Só o `codeql.yaml` recebe `security-events: write`, para enviar os resultados ao Code scanning. A escrita no repo `helm-charts` usa um token próprio, não o `GITHUB_TOKEN`.
 
@@ -298,6 +309,15 @@ Configurado em `.github/dependabot.yml`, roda semanalmente:
 
 Os PRs do Dependabot abrem contra `homolog` (`target-branch`) e passam pela mesma `ci.yaml` e `codeql.yaml` de qualquer PR.
 
+O prefixo das mensagens (`commit-message`) segue o que o Release Please espera:
+
+| Ecossistema | Mensagem | Efeito na versão |
+|---|---|---|
+| npm, dependência de runtime | `fix(deps): ...` | patch |
+| npm, devDependency | `chore(deps-dev): ...` | nenhum (não entra na imagem) |
+| Imagem base Docker | `fix(deps): ...` | patch |
+| GitHub Actions | `ci(deps): ...` | nenhum |
+
 ---
 
 ## Problemas comuns
@@ -315,6 +335,9 @@ O secret ainda não existe, ou está vazio. Crie o PAT fine-grained e grave em S
 
 **O pull request de release não aparece**
 Não houve commit `feat`, `fix` ou `BREAKING CHANGE` depois do `bootstrap-sha`. Um `chore` ou um merge sem corpo convencional não abre release.
+
+**A mesma mudança aparece duas vezes no changelog**
+O PR entrou em `homolog` por merge commit, não por squash. Ver [Merge em `homolog`](#merge-em-homolog).
 
 **`promote` falha com "nao e semver"**
 A tag precisa seguir `vX.Y.Z` (ex.: `v1.2.3`).
